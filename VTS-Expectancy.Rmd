@@ -1,0 +1,691 @@
+---
+title: "VTS Reward Training"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r Setup Libraries, message=FALSE, warning=FALSE, include=FALSE}
+library(here)
+library(tidyverse)
+library(data.table)
+library(rstatix)
+library(zoo)
+library(ggforce)
+library(ggpubr)
+library(afex)
+library(optimx)
+library(emmeans)
+library(ggeffects)
+library(sjPlot)
+library(viridis)
+library(xtable)
+library(redcapAPI)
+```
+```{r Setup path, include=FALSE}
+workdir=here()
+knitr::opts_knit$set(root.dir = workdir)
+```
+# Read in data
+```{r Read in raw data, include=FALSE}
+filelist<- Sys.glob(file.path(workdir,"data","*","*_vts_reward_expectancy_*.csv"))
+fulldata <- data.frame()
+
+for (file in filelist) {
+  rawdata <- fread(file, nThread = 6)
+  if ("OS" %in% colnames(rawdata)) {
+    data <- rawdata %>% select(participant, OS, browser, xResolution, yResolution,
+                             acc, E1, points_trial, points_cumul, alt, task, condition, rewCond,
+                             training_resp.rt,target_resp.rt, 
+                             training.thisN, trials_norew.thisRepN, trials_rew.thisRepN)
+    data$platform = "online"
+    } else {
+      data <- rawdata %>% select(participant, acc, E1, points_trial, points_cumul, 
+                               alt, task, condition, rewCond, currShape, curr_topStim, 
+                               curr_bottStim, blockNum, LShape_ID, RShape_ID, 
+                               trainBlock, training.thisN, training_resp.keys, training_resp.rt, 
+                               target_resp.rt, target_resp.keys, trials_norew.thisRepN, trials_rew.thisRepN)
+      data$platform = "inlab"
+      data$OS = "MacIntel"
+      data$browser = NA
+      data$xResolution = NA
+      data$yResolution = NA
+    }
+  
+  if (grepl("probabilistic", file, fixed = TRUE) == "TRUE") {
+    data$version = "probabilistic"
+    } else if (grepl("deterministic", file, fixed = TRUE) == "TRUE") {
+      data$version = "deterministic"
+      }
+  
+  if ( (data$version[1] == "probabilistic") && (data$platform[1] == "inlab") && (as.numeric(data$participant) > 1000)) {
+    data$participant <- as.numeric(data$participant) - 1000
+    }
+  data$participant <- as_factor(data$participant)
+  
+  data <- data %>% 
+    mutate(condition = ifelse(!is.na(training.thisN), "training", data$condition))
+  
+  # Blocks only logged at end, so need to define blockNum based on trial list restart
+  data <- unite(data, trialNum, c(training.thisN, trials_norew.thisRepN, trials_rew.thisRepN), na.rm = TRUE)
+  
+  data$blockNum <- as.factor(data$blockNum)
+  filename=sprintf("%s/data_parsed/%s_vts_reward_training_%s_%s.csv", workdir, data$participant[1], data$platform[1], data$version[1])
+  write.csv(data, filename)
+  fulldata <- rbind(fulldata,data)
+}
+```
+Read in data from 387 participants
+```{r Recode variables}
+fulldata <- fulldata %>% 
+  mutate(rewCond = ifelse(condition == "training", NA,fulldata$rewCond))
+fulldata <- unite(fulldata, RT, c(training_resp.rt, target_resp.rt), na.rm = TRUE)
+fulldata$RT <- as.numeric(fulldata$RT)
+fulldata$RT <- fulldata$RT * 1000 # convert from sec to ms  
+  
+fulldata$trialNum <- as.numeric(fulldata$trialNum)
+fulldata <- fulldata %>% filter(!is.na(trialNum))
+  
+fulldata <- fulldata %>% 
+  mutate(rewCond = case_when(rewCond == 1 ~ "Lo",
+                             rewCond == 2 ~ "Hi",
+                             rewCond == "noRew" ~ "NoRew"))
+fulldata$rewCond <- as.factor(fulldata$rewCond)
+fulldata$rewCond <- relevel(fulldata$rewCond, "Hi")
+
+# Previous Trial Reward Outcome
+fulldata$prevRew=NA
+fulldata <- fulldata %>% 
+  mutate(prevRew = case_when(E1 == 1 ~ "error",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Lo" & lag(points_trial)==1  ~ "lo",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Lo" & lag(points_trial)==10 ~ "lo+",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Hi" & lag(points_trial)==10 ~ "hi",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Hi" & lag(points_trial)==1  ~ "hi-",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Hi" & lag(points_trial)==0  ~ "hiSlow"))
+fulldata$prevRew <- as.factor(fulldata$prevRew)
+# Make Low first
+fulldata$prevRew <- relevel(fulldata$prevRew, "hi")
+  
+# determine reward transition
+# rewCond 1 is low reward, rewCond 2 is high reward (response contingent)
+fulldata$rewTrans=NA
+fulldata <- fulldata %>% 
+  mutate(rewTrans = case_when(trialNum>0 & rewCond=="Lo" & lag(rewCond)=="Lo" ~ "remainLo",
+                              trialNum>0 & rewCond=="Hi" & lag(rewCond)=="Hi" ~ "remainHi",
+                              trialNum>0 & rewCond=="Hi" & lag(rewCond)=="Lo" ~ "increase",
+                              trialNum>0 & rewCond=="Lo" & lag(rewCond)=="Hi" ~ "decrease"))
+fulldata$rewTrans <- as.factor(fulldata$rewTrans)
+# Set increase to reference level
+fulldata$rewTrans <- relevel(fulldata$rewTrans, "remainHi")
+  
+fulldata$version <- as.factor(fulldata$version)
+fulldata$version <- relevel(fulldata$version, "deterministic")
+fulldata$platform <- as.factor(fulldata$platform)
+fulldata$platform <- relevel(fulldata$platform, "inlab")
+init_subs <- fulldata %>% group_by(participant) %>% summarise(n=n())
+```
+
+# Read data from REDcap surveys
+```{r Read survey data}
+# http://ayanalytics.com/using-r-and-redcap-api-to-automate-exportimport-dataset/
+redcap_url <- "https://redcap.tamhsc.edu/redcap/api/"
+token_ex <- "yourmainproject"
+
+raw_survey_inlabProb <- fetch_survey('SV_diJRHiCnA5iCKmW', time_zone = "America/Chicago", start_date = "2022-01-01", force_request = TRUE)
+survey_data_inlabProb <- raw_survey_inlabProb %>% 
+  select(1,2,6,19:64)
+names(survey_data_inlabProb) <- c('StartDate','EndDate','Duration','ID','Consent','Gender','Age','Colorblind','Colorblind_type','Education','Race_White','Race_Hispanic','Race_Black','Race_NativeHaw','Race_Asian','Race_Indian','Race_MiddleEast','Race_Other','Race_Mixed','Race_NA','Race_OtherText','Tobacco_Freq','AlcoholFreq','AlcoholQuant','DrugsFreq','BISBAS1','BISBAS2','BISBAS3','BISBAS4','BISBAS5','BISBAS6','BISBAS7','BISBAS8','BISBAS9','BISBAS10','BISBAS11','BISBAS12','BISBAS13','BISBAS14','BISBAS15','BISBAS16','BISBAS17','BISBAS18','BISBAS19','BISBAS20','BISBAS21','BISBAS22','BISBAS23','BISBAS24')
+survey_data_inlabProb <- survey_data_inlabProb %>% 
+  mutate(ID = ifelse(ID > 1000, survey_data_inlabProb$ID-1000, survey_data_inlabProb$ID))
+# remove 38 & 65 duplicate that doesn't have behavioral data
+survey_data_inlabProb <- survey_data_inlabProb[-c(35, 100, 107), ]
+# participant 69 was entered as 65 for the survey
+survey_data_inlabProb$ID[64]=69
+survey_data_inlabProb$ID[67]=71.2
+
+raw_survey_inlabDet <- fetch_survey('SV_diJRHiCnA5iCKmW', time_zone = "America/Chicago", end_date = "2022-01-01", force_request = TRUE)
+survey_data_inlabDet <- raw_survey_inlabDet %>% 
+  select(1,2,6,19:64)
+names(survey_data_inlabDet) <- c('StartDate','EndDate','Duration','ID','Consent','Gender','Age','Colorblind','Colorblind_type','Education','Race_White','Race_Hispanic','Race_Black','Race_NativeHaw','Race_Asian','Race_Indian','Race_MiddleEast','Race_Other','Race_Mixed','Race_NA','Race_OtherText','Tobacco_Freq','AlcoholFreq','AlcoholQuant','DrugsFreq','BISBAS1','BISBAS2','BISBAS3','BISBAS4','BISBAS5','BISBAS6','BISBAS7','BISBAS8','BISBAS9','BISBAS10','BISBAS11','BISBAS12','BISBAS13','BISBAS14','BISBAS15','BISBAS16','BISBAS17','BISBAS18','BISBAS19','BISBAS20','BISBAS21','BISBAS22','BISBAS23','BISBAS24')
+survey_data_inlabDet$ID <- as.numeric(survey_data_inlabDet$ID)
+survey_data_inlabDet <- survey_data_inlabDet %>%
+  filter(ID<1150 & ID > 1000)
+survey_data_inlabDet$ID[26]=1034.2
+survey_data_inlabDet$ID[75]=1082.2
+# remove duplicate 1094 - entries were close in time
+survey_data_inlabDet <- survey_data_inlabDet[-c(88), ]
+
+raw_survey_online <- fetch_survey('SV_eFL2sd30qpH8i46', time_zone = "America/Chicago", force_request = TRUE)
+survey_data_online <- raw_survey_online %>% 
+  select(18:68, 72)
+names(survey_data_online) <- c('Consent','Mobile','Alone','Music','Activity','Gender','Age','Colorblind','Colorblind_type','Education','Race_White','Race_Hispanic','Race_Black','Race_NativeHaw','Race_Asian','Race_Indian','Race_MiddleEast','Race_Other','Race_Mixed','Race_NA','Race_OtherText','Tobacco_Freq','AttnCheck','AlcoholFreq','AlcoholQuant','DrugsFreq','BISBAS1','BISBAS2','BISBAS3','BISBAS4','BISBAS5','BISBAS6','BISBAS7','BISBAS8','BISBAS9','BISBAS10','BISBAS11','BISBAS12','BISBAS13','BISBAS14','BISBAS15','BISBAS16','BISBAS17','BISBAS18','AttnCheck2','BISBAS19','BISBAS20','BISBAS21','BISBAS22','BISBAS23','BISBAS24','ID')
+survey_data_online <- survey_data_online %>% 
+  distinct(ID, .keep_all = TRUE)
+
+survey_data_inlabDet <- survey_data_inlabDet %>% 
+  select('ID','Gender','Age','Colorblind','Colorblind_type','Education','Race_White','Race_Hispanic','Race_Black','Race_NativeHaw','Race_Asian','Race_Indian','Race_MiddleEast','Race_Other','Race_Mixed','Race_NA','Race_OtherText','Tobacco_Freq','AlcoholFreq','AlcoholQuant','DrugsFreq','BISBAS1','BISBAS2','BISBAS3','BISBAS4','BISBAS5','BISBAS6','BISBAS7','BISBAS8','BISBAS9','BISBAS10','BISBAS11','BISBAS12','BISBAS13','BISBAS14','BISBAS15','BISBAS16','BISBAS17','BISBAS18','BISBAS19','BISBAS20','BISBAS21','BISBAS22','BISBAS23','BISBAS24')
+survey_data_inlabProb <- survey_data_inlabProb %>% 
+  select('ID','Gender','Age','Colorblind','Colorblind_type','Education','Race_White','Race_Hispanic','Race_Black','Race_NativeHaw','Race_Asian','Race_Indian','Race_MiddleEast','Race_Other','Race_Mixed','Race_NA','Race_OtherText','Tobacco_Freq','AlcoholFreq','AlcoholQuant','DrugsFreq','BISBAS1','BISBAS2','BISBAS3','BISBAS4','BISBAS5','BISBAS6','BISBAS7','BISBAS8','BISBAS9','BISBAS10','BISBAS11','BISBAS12','BISBAS13','BISBAS14','BISBAS15','BISBAS16','BISBAS17','BISBAS18','BISBAS19','BISBAS20','BISBAS21','BISBAS22','BISBAS23','BISBAS24')
+
+survey_data_online <- survey_data_online %>% 
+  select('ID','Gender','Age','Colorblind','Colorblind_type','Education','Race_White','Race_Hispanic','Race_Black','Race_NativeHaw','Race_Asian','Race_Indian','Race_MiddleEast','Race_Other','Race_Mixed','Race_NA','Race_OtherText','Tobacco_Freq','AlcoholFreq','AlcoholQuant','DrugsFreq','BISBAS1','BISBAS2','BISBAS3','BISBAS4','BISBAS5','BISBAS6','BISBAS7','BISBAS8','BISBAS9','BISBAS10','BISBAS11','BISBAS12','BISBAS13','BISBAS14','BISBAS15','BISBAS16','BISBAS17','BISBAS18','BISBAS19','BISBAS20','BISBAS21','BISBAS22','BISBAS23','BISBAS24')
+
+survey_data <- rbind(survey_data_inlabDet, survey_data_inlabProb, survey_data_online)
+survey_data <- survey_data %>% distinct(ID, .keep_all = TRUE)
+only_surveys <- survey_data$ID[!(survey_data$ID %in% fulldata$participant)]
+participant_demos <- survey_data %>% filter(ID %in% fulldata$participant)
+```
+
+``` {r convert questionnaires}
+# Convert Race to 1/0 - When multiple are selected the totals will be more than the total n
+participant_demos <- participant_demos %>% mutate(Race_White = ifelse(!is.na(Race_White),1,0)) %>% 
+  mutate(Race_Hispanic = ifelse(!is.na(Race_Hispanic),1,0)) %>% 
+  mutate(Race_Black = ifelse(!is.na(Race_Black),1,0)) %>% 
+  mutate(Race_NativeHaw = ifelse(!is.na(Race_NativeHaw),1,0)) %>% 
+  mutate(Race_Asian = ifelse(!is.na(Race_Asian),1,0)) %>% 
+  mutate(Race_Indian = ifelse(!is.na(Race_Indian),1,0)) %>% 
+  mutate(Race_MiddleEast = ifelse(!is.na(Race_MiddleEast),1,0)) %>% 
+  mutate(Race_Other = ifelse(!is.na(Race_Other),1,0)) %>% 
+  mutate(Race_Mixed = ifelse(!is.na(Race_Mixed),1,0))
+
+# Convert BISBAS to Numerical for Easy Tabulation
+participant_demos <- participant_demos %>% 
+  mutate_at(vars(starts_with("BISBAS")),
+            ~ case_when(. == "Very False For Me" ~ 1, 
+                        . == "Somewhat False For Me" ~ 2, 
+                        . == "Somewhat True For Me" ~ 3, 
+                        . == "Very True For Me" ~ 4))
+
+# BAS Drive = 3, 9, 12, 21
+# BAS Fun Seeking = 5, 10, 15, 20
+# BAS Reward Responsiveness = 4, 7, 14, 18, 23
+# BIS = 2(-1), 8, 13, 16, 19, 22(-1), 24
+participant_demos <- participant_demos %>% 
+  mutate(BAS_Drive = (BISBAS3 + BISBAS9 + BISBAS12 + BISBAS21)) %>% 
+  mutate(BAS_Fun = (BISBAS5 + BISBAS10 + BISBAS15 + BISBAS20)) %>% 
+  mutate(BAS_RR = (BISBAS4 + BISBAS7 + BISBAS14 + BISBAS18 + BISBAS23)) %>% 
+  mutate(BISBAS2 = 6 - BISBAS2) %>% 
+  mutate(BISBAS22 = 6 - BISBAS22) %>% 
+  mutate(BIS = (BISBAS2 + BISBAS8 + BISBAS13 + BISBAS16 + BISBAS19 + BISBAS22 + BISBAS24))
+
+center_scale <- function(x) {
+    scale(x, scale = FALSE)
+}
+
+# Convert substance use
+participant_demos <- participant_demos %>% 
+  mutate(Tobacco_Freq = case_when(Tobacco_Freq == "Frequently (> 5 a day)" ~ 5,
+                        Tobacco_Freq == "Daily (< 5 a day)" ~ 4,
+                        Tobacco_Freq == "Occasionally (3-4 a week)" ~ 3,
+                        Tobacco_Freq == "Rarely (~1 a week)" ~ 2,
+                        Tobacco_Freq == "Never" ~ 1)) %>% 
+  mutate(AlcoholFreq = case_when(AlcoholFreq == "More than 5 times a week" ~ 5,
+                                 AlcoholFreq == "2-3 times a week" ~ 4,
+                                 AlcoholFreq == "1-2 times a week" ~ 3,
+                                 AlcoholFreq == "Only occasionally" ~ 2,
+                                 AlcoholFreq == "Never" ~ 1)) %>% 
+  mutate(AlcoholQuant = case_when(AlcoholQuant == "More than 5 drinks" ~ 5,
+                                  AlcoholQuant == "3-5 drinks" ~ 4,
+                                  AlcoholQuant == "1-2 drinks" ~ 3,
+                                  AlcoholQuant == "Only occasionally" ~ 2,
+                                  AlcoholQuant == "Never" ~ 1)) %>% 
+  mutate(DrugsFreq = case_when(DrugsFreq == "Daily" ~ 5,
+                               DrugsFreq == "3-5 times a week" ~ 4,
+                               DrugsFreq == "1-2 times a week" ~ 3,
+                               DrugsFreq == "Only occasionally" ~ 2,
+                               DrugsFreq == "Never" ~ 1))
+
+median(participant_demos$Age, na.rm = TRUE)
+sd(participant_demos$Age, na.rm = TRUE)
+# Convert all character columns to factors to make it easier to tabulate
+index <- 1:(ncol(participant_demos)-4)
+participant_demos[ , index] <- 
+  lapply(participant_demos[ , index], as.factor)
+summary(participant_demos)
+```
+Survey data from 444 participants. 62 participants have survey data without behavioral data.
+We didn't save incomplete data for online collections so 41 online participants didn't complete behavioral.
+
+# Data cleaning
+## RT data cleaning
+```{r Summary stats for RT data, echo=TRUE}
+summary_RT <- fulldata %>% 
+  filter(!condition == "training") %>% 
+  group_by(participant, platform, version) %>%
+  filter(RT>200 & acc==1 & E1==0) %>% 
+  summarise(meanRT = mean(RT, na.rm = TRUE),
+            logRT = log10(meanRT),
+            sdRT = sd(RT, na.rm = TRUE),
+            count = sum(!is.na(RT)), .groups = "keep")
+summary(summary_RT)
+```
+```{r Plot RT Histogram, echo=TRUE}
+summary_RT %>% 
+  ggplot(aes(x=meanRT)) + 
+  facet_grid(rows = vars(platform), cols = vars(version)) +
+  geom_histogram(binwidth=50) +
+  geom_vline(data = filter(summary_RT, version=="deterministic", platform=="inlab"),
+             aes(xintercept=median(meanRT)), color="blue", linetype="dashed", size=1) +
+  geom_vline(data = filter(summary_RT, version=="deterministic", platform=="online"),
+             aes(xintercept=median(meanRT)), color="blue", linetype="dashed", size=1) +
+  geom_vline(data = filter(summary_RT, version=="probabilistic", platform=="inlab"),
+             aes(xintercept=median(meanRT)), color="blue", linetype="dashed", size=1) +
+  geom_vline(data = filter(summary_RT, version=="probabilistic", platform=="online"),
+             aes(xintercept=median(meanRT)), color="blue", linetype="dashed", size=1) +
+  scale_x_continuous(name="Mean RT", breaks = seq(400,1500,200)) +
+  scale_y_continuous(name = "Count", breaks = seq(0,20,5))
+```
+All levels of platform and platform have similar distributions
+``` {r Determine RT outliers, warning=FALSE, echo=TRUE}
+RT_outliers <- fulldata %>% 
+  filter(!condition == "training") %>% 
+  group_by(participant) %>%
+  filter(RT>200 & acc==1 & E1==0) %>% 
+  summarise(meanRT = mean(RT, na.rm = TRUE)) %>% 
+  identify_outliers(meanRT)
+RT_exclude <- subset(RT_outliers,is.extreme=="TRUE") %>% select(participant)
+excludeSubjs <- RT_exclude
+```
+Exclude 2 RT outlier
+## ACC data cleaning
+```{r Summarise Accuracy Data, warning=FALSE}
+summary_ACC <- fulldata %>% 
+  filter(!condition == "training") %>% 
+  group_by(participant, platform, version) %>% 
+  summarise(ACC = mean(acc, na.rm = TRUE), 
+            asinACC = asin(sqrt((mean(acc, na.rm = TRUE)))), 
+            count=sum(!is.na(RT)), .groups = "keep")
+summary(summary_ACC)
+```
+``` {r Plot Accuracy Histogram}
+summary_ACC %>% 
+  ggplot(aes(x=ACC)) + 
+  facet_grid(rows = vars(platform), cols = vars(version)) +
+  geom_histogram(binwidth=.02) + 
+  geom_vline(data = filter(summary_ACC, version=="deterministic", platform=="inlab"),
+             aes(xintercept=median(ACC)), color="blue", linetype="dashed", size=1) +
+  geom_vline(data = filter(summary_ACC, version=="deterministic", platform=="online"),
+             aes(xintercept=median(ACC)), color="blue", linetype="dashed", size=1) +
+  geom_vline(data = filter(summary_ACC, version=="probabilistic", platform=="inlab"),
+             aes(xintercept=median(ACC)), color="blue", linetype="dashed", size=1) +
+  geom_vline(data = filter(summary_ACC, version=="probabilistic", platform=="online"),
+             aes(xintercept=median(ACC)), color="blue", linetype="dashed", size=1) +
+  scale_x_continuous(name="Accuracy", breaks = seq(0, 1, .1)) +
+  scale_y_continuous(name = "Count", breaks = seq(0,30,5))
+```
+All levels of platform and platform have similar distributions for ACC
+``` {r Check acc outliers}
+ACC_outliers <- fulldata %>% 
+  filter(!condition == "training") %>% 
+  group_by(participant) %>% 
+  summarise(ACC = mean(acc, na.rm = TRUE)) %>% 
+  identify_outliers(ACC)
+ACC_exclude <- subset(ACC_outliers,is.extreme=="TRUE") %>% select(participant)
+excludeSubjs <- rbind(excludeSubjs,ACC_exclude)
+excludeSubjs <- unique(excludeSubjs)
+```
+Exclude 6 ACC outliers
+
+## Exclude participants who did not pay attention in training
+### Compare points_total during training to identify outliers
+``` {r}
+summary_training <- fulldata %>% 
+  filter(condition == "training") %>% 
+  group_by(participant) %>% 
+  summarise(points = sum(points_trial), sd = sd(points_trial))
+summary(summary_training)
+training_outliers <- summary_training %>% 
+  filter(points < 500) %>% 
+  select(participant)
+excludeSubjs <- rbind(excludeSubjs, training_outliers)
+excludeSubjs <- unique(excludeSubjs)
+```
+Exclude 10 people with poor training, ie below 500 points
+## task choice data cleaning
+```{r summary of task choice, warning=FALSE}
+summary_task_choice <- fulldata %>%
+  group_by(participant, platform, version, task) %>% 
+  summarise(n = n()) %>% 
+  summarise(lettProp = sum(n[task=="letter"])/sum(n), .groups = "keep")
+summary(summary_task_choice)
+```
+```{r plot task choice histogram}
+summary_task_choice %>% 
+  ggplot(aes(x=lettProp)) + 
+  facet_grid(rows = vars(platform), cols = vars(version)) +
+  geom_histogram(binwidth=.03) + 
+  geom_vline(data = filter(summary_task_choice, version=="deterministic", platform=="inlab"),
+             aes(xintercept=median(lettProp)), color="blue", linetype="dashed", size=1) +
+  geom_vline(data = filter(summary_task_choice, version=="deterministic", platform=="online"),
+             aes(xintercept=median(lettProp)), color="blue", linetype="dashed", size=1) +
+  geom_vline(data = filter(summary_task_choice, version=="probabilistic", platform=="inlab"),
+             aes(xintercept=median(lettProp)), color="blue", linetype="dashed", size=1) +
+  geom_vline(data = filter(summary_task_choice, version=="probabilistic", platform=="online"),
+             aes(xintercept=median(lettProp)), color="blue", linetype="dashed", size=1) +
+  scale_x_continuous(name="Letter Task Choice Proportion", breaks = seq(0, 1, .1)) +
+  scale_y_continuous(name = "Count", breaks = seq(0,30,5))
+```
+All levels of platform and platform have similar distributions and medians for Task Choice
+```{r Check for task choice outliers, warning=FALSE}
+task_outliers <- fulldata %>%
+  group_by(participant, task) %>% 
+  summarise(n = n(), .groups = "drop_last") %>% 
+  summarise(lettProp = sum(n[task=="letter"])/sum(n), .groups = "keep") %>% 
+  identify_outliers(lettProp)
+
+# normal outlier detection doesn't work on these probability data because Q1-3*IQR is negative
+# calculate by hand using the same criteria to ID extreme outliers (3*IQR)
+Q1 = quantile(summary_task_choice$lettProp, probs = .25); Q3 = quantile(summary_task_choice$lettProp, probs = .75);
+IQR = Q3-Q1
+task_exclude <- summary_task_choice %>% 
+  filter( (lettProp < Q1-3*IQR) || (lettProp > Q3+3*IQR) ) %>% 
+  ungroup() %>% select(participant)
+
+excludeSubjs <- rbind(excludeSubjs,task_exclude)
+excludeSubjs <- unique(excludeSubjs)
+```
+16 excluded
+## VSR data cleaning
+```{r Summarise switch rate, warning=FALSE}
+summary_VSR <- fulldata %>% 
+  group_by(participant, platform, version, alt) %>%
+  dplyr::summarise(n = n(), .groups = "drop_last") %>%
+  dplyr::summarise(VSR = n[alt=="switch"]/sum(n), count=sum(n), .groups = "keep") %>% 
+  filter(!is.na(VSR))
+summary(summary_VSR)
+```
+``` {r Plot VSR distribution}
+summary_VSR %>% 
+  ggplot(aes(x=VSR)) + 
+  facet_grid(rows = vars(platform), cols = vars(version)) +
+  geom_histogram(binwidth=.05) +
+  geom_vline(data = filter(summary_VSR, version=="deterministic", platform=="inlab"), aes(xintercept=median(VSR)),
+             color="blue", linetype="dashed", size=1) +
+  geom_vline(data = filter(summary_VSR, version=="deterministic", platform=="online"), aes(xintercept=median(VSR)),
+             color="blue", linetype="dashed", size=1) +
+  geom_vline(data = filter(summary_VSR, version=="probabilistic", platform=="inlab"), aes(xintercept=median(VSR)),
+             color="blue", linetype="dashed", size=1) +
+  geom_vline(data = filter(summary_VSR, version=="probabilistic", platform=="online"), aes(xintercept=median(VSR)),
+             color="blue", linetype="dashed", size=1) +
+  scale_x_continuous(name="Voluntary Switch Rate", breaks = seq(0.0, 1.0, .1)) +
+  scale_y_continuous(name = "Count", breaks = seq(0,30,5))
+```
+All levels of platform and platform have similar distributions and medians for VSR
+``` {r Check for VSR Outliers}
+VSR_outliers <- fulldata %>% 
+  group_by(participant, alt) %>%
+  summarise(n = n(), .groups = "drop_last") %>%
+  summarise(VSR = n[alt=="switch"]/sum(n), count=sum(n), .groups = "keep") %>% 
+  filter(!is.na(VSR)) %>% 
+  identify_outliers(VSR)
+
+# normal outlier detection doesn't work on these probability data because Q1-3*IQR is negative
+# so calculate by hand using the same criteria to ID extreme outliers (3*IQR)
+Q1 = quantile(summary_VSR$VSR, probs = .25); Q3 = quantile(summary_VSR$VSR, probs = .75);
+IQR = Q3-Q1
+VSR_exclude <- summary_VSR %>% 
+  filter( (VSR < Q1-3*IQR) || (VSR > Q3+3*IQR) ) %>% 
+  ungroup() %>% select(participant)
+excludeSubjs <- rbind(excludeSubjs,VSR_exclude)
+excludeSubjs <- unique(excludeSubjs)
+```
+0 VSR outliers, range is too large so Q1-3*IQR is negative
+## Remove outliers from data to enter into analysis
+``` {r Remove outliers from data, warning=FALSE, echo=FALSE}
+cleandata <- fulldata %>% 
+  filter(! participant %in% excludeSubjs$participant) %>% 
+  filter(!condition == "training") %>%
+  filter(!rewCond == "NoRew")
+
+participant_demos <- participant_demos %>% 
+  filter(ID %in% cleandata$participant) %>% 
+  rename(participant = ID) %>% 
+  filter(!is.na("BAS_Drive"))
+participant_demos$participant <- as.factor(participant_demos$participant)
+
+cleandata.w.demos <- cleandata %>% group_by(participant) %>% filter(participant %in% participant_demos$participant)
+
+cleandata.w.demos <- left_join(cleandata.w.demos, participant_demos, by=c("participant"))
+
+cleanRTdata <- filter(cleandata, RT>200 & acc==1, E1==0)
+cleanACCdata <- filter(cleandata, RT>200)
+cleanChoicedata <- filter(cleandata, RT>200)
+
+cleanRTdata.w.demos <- filter(cleandata.w.demos, RT>200 & acc==1, E1==0)
+cleanACCdata.w.demos <- filter(cleandata.w.demos, RT>200)
+cleanChoicedata.w.demos <- filter(cleandata.w.demos, RT>200)
+  
+included_subjs <- cleandata.w.demos %>% group_by(participant) %>% summarise(n=n()) %>% select(participant)
+```
+Missing survey data from 4 participants due to sona->qualtrics issues. 
+# RT Analyses
+```{r GLMM - RT by current and previous reward probabilistic w/ BISBAS}
+# In order to compare between platforms, only use Hi, HiSlow, and Low prev reward from probabilistic
+RTdata <- cleanRTdata %>% 
+  filter(prevRew == "hi" | prevRew == "hiSlow" | prevRew == "lo") %>% 
+  droplevels() %>% 
+  mutate(logRT = log10(RT))
+
+RTdata$prevRew <- factor(RTdata$prevRew, levels = c("lo","hiSlow","hi"), labels = c("lo","hiSlow","hi"), ordered = T)
+# Set contrasts
+# PrevRew - Compare all to Low
+contrasts(RTdata$alt) <- contr.sum(2)
+contrasts(RTdata$rewCond) <- contr.sum(2)
+contrasts(RTdata$prevRew) <- contr.sum(3)
+contrasts(RTdata$version) <- contr.sum(2)
+contrasts(RTdata$platform) <- contr.sum(2)
+write_rds(RTdata, file = here('Rdata','RTdata.Rda'))
+```
+```{r load julia rt models}
+rt_m4 <- lmer(formula = logRT ~ 1 + alt*prevRew*rewCond*version*platform + (1|participant), data = RTdata, REML = FALSE)
+rt_m5 <- lmer(formula = logRT ~ 1 + (alt+prevRew+rewCond+version+platform)^2 + (1|participant), data = RTdata, REML = FALSE)
+summary(rt_m4)
+tab_model(rt_m4, show.icc = F, show.re.var = F, show.obs = F, dv.labels = "", wrap.labels = 50, show.ngroups = F, digits = 4)
+```
+```{r rt emmeans 1 - alt rewCond version}
+emm_rt1 <- emmeans(rt_m4, specs = pairwise ~ alt:rewCond, by = "version")
+emm_rt1_summ <- emm_rt1$contrasts %>% summary(infer = T)
+xtable(emm_rt1_summ)
+plot_model(rt_m4, type = "emm", terms = c("rewCond","alt","version"), title = "", axis.title = c("Current Reward Prospect", "log10 RT"), legend.title = "Alternation")
+ggsave("RT_SwitchRewVersion_plot.pdf", device = cairo_pdf, path = here("Rdata"))
+```
+```{r rt emmeans 2 - alt prevRew version}
+emm_rt2 <- emmeans(rt_m4, specs = pairwise ~ alt:prevRew, by = "version")
+emm_rt2_summ <- emm_rt2$contrasts %>% summary(infer = T)
+xtable(emm_rt2_summ)
+plot_model(rt_m4, type = "emm", terms = c("prevRew","alt","version"), title = "", axis.title = c("Previous Reward Outcome", "log10 RT"), legend.title = "Alternation")
+ggsave("RT_SwitchPrevRewVersion_plot.pdf", device = cairo_pdf, path = here("Rdata"))
+```
+```{r rt custom contrasts - emm_rt2}
+emm_rt_altPrevVer <- emmeans(rt_m4, specs = c("alt","prevRew","version"))
+custom <- list("SC_lo-hs_d" = c(-1, 1, 1, -1, 0, 0, 0, 0, 0, 0, 0, 0),
+               "SC_hi-hs_d" = c(0, 0, 1, -1, -1, 1, 0, 0, 0, 0, 0, 0),
+               "SC_hi-lo_d" = c(-1, 1, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0),
+               "SC_lo-hs_p" = c(0, 0, 0, 0, 0, 0, -1, 1, 1, -1, 0, 0),
+               "SC_hi-hs_p" = c(0, 0, 0, 0, 0, 0, 0, 0, 1, -1, -1, 1),
+               "SC_hi-lo_p" = c(0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 1, -1),
+               "SC_lo_d-p" = c(1, -1, 0, 0, 0, 0, -1, 1, 0, 0, 0, 0),
+               "SC_hs_d-p" = c(0, 0, 1, -1, 0, 0, 0, 0, -1, 1, 0, 0),
+               "SC_hi_d-p" = c(0, 0, 0, 0, 1, -1, 0, 0, 0, 0, -1, 1))
+emm_rt_SC_PrevVer <- contrast(regrid(emm_rt_altPrevVer), method = custom, adjust = "holm") %>% summary(infer=T)
+xtable(emm_rt_SC_PrevVer)
+```
+```{r rt emmeans 3 - alt by rewCond by platform}
+emm_rt3 <- emmeans(rt_m4, specs = pairwise ~ alt:rewCond, by = "platform")
+emm_rt3_summ <- emm_rt3$contrasts %>% summary(infer = T)
+xtable(emm_rt3_summ)
+plot_model(rt_m4, type = "emm", terms = c("rewCond","alt","platform"), axis.title = c("Current Reward Prospect","log10 RT"), legend.title = "Alternation", title = "")
+ggsave("RT_AltRewCondPlatform_plot.pdf", device = cairo_pdf, path = here("Rdata"))
+```
+```{r rt emmeans 4 - prevRew by rewCond by platform}
+emm_rt4 <- emmeans(rt_m4, specs = pairwise ~ rewCond, by = c("prevRew","platform"))
+emm_rt4_summ <- emm_rt4$contrasts %>% summary(infer = T)
+xtable(emm_rt4_summ)
+plot_model(rt_m4, type = "emm", terms = c("prevRew", "rewCond", "platform"), axis.title = c("Previous Reward Outcome","log10 RT"), legend.title = "Current Reward", title = "")
+ggsave("RT_RewCondPrevPlatform_plot.pdf", device = cairo_pdf, path = here("Rdata"))
+```
+
+```{r rt emmeans 5 - rewCond by type by platform}
+emm_rt5 <- emmeans(rt_m4, specs = pairwise ~ rewCond, by = c("version","platform"))
+emm_rt5_summ <- emm_rt5$contrasts %>% summary(infer = T)
+xtable(emm_rt5_summ)
+plot_model(rt_m4, type = "emm", terms = c("rewCond", "version","platform"), axis.title = c("Current Reward Prospects", "log10 RT"), legend.title = "Reward Type", title = "")
+ggsave("RT_RewCondTypePlatform_plot.pdf", device = cairo_pdf, path = here("Rdata"))
+```
+# Accuracy analysis
+```{r Setup data for ACC glmm}
+# In order to compare between platforms, only use Hi, HiSlow, and Low prev reward from probabilistic
+ACCdata <- cleanACCdata %>% 
+  filter(prevRew == "hi" | prevRew == "hiSlow" | prevRew == "lo") %>% 
+  filter(!is.na("alt")) %>% 
+  droplevels()
+
+# Set contrasts
+# PrevRew - Compare all to Low
+contrasts(ACCdata$alt) <- contr.sum(2)
+contrasts(ACCdata$rewCond) <- contr.sum(2)
+contrasts(ACCdata$prevRew) <- contr.sum(3)
+contrasts(ACCdata$version) <- contr.sum(2)
+contrasts(ACCdata$platform) <- contr.sum(2)
+
+write_rds(ACCdata, here('Rdata','ACCdata.Rds'))
+```
+```{r Accuracy summary statistics}
+summaryACCstats <- ACCdata %>% group_by(participant, prevRew, rewCond, platform, version) %>% summarise(ACC = mean(acc, na.rm = TRUE)) 
+summaryACCstats %>%  ggplot(aes(x = interaction(prevRew,rewCond), y = ACC)) +
+  ggbeeswarm::geom_quasirandom(alpha = 0.2) +
+  geom_boxplot(fill = "transparent") +
+  stat_summary(color = "red", fun = mean) +
+  facet_row("version") + facet_col("platform") + theme_ggeffects()
+```
+
+```{r load julia acc model}
+acc_m5j <- readRDS(here('Rdata','acc_m5j.Rds'))
+summary(acc_m5j)
+tab_model(acc_m5j, show.icc = F, show.re.var = F, show.obs = F, dv.labels = "", wrap.labels = 50, show.ngroups = F, digits = 4)
+```
+```{r emm of accuracy}
+theme_set(theme_minimal(base_size = 16, base_family = "Arial") +
+          theme(legend.position = "top"))
+plot_model(acc_m5j, terms = "prevRew", type = "emm", title = "", axis.title = c("Previous Reward Outcome", "Accuracy"))
+ggsave("acc_prevRew_plot.pdf", device = cairo_pdf, path = here("Rdata"))
+
+emm_acc <- emmeans(acc_m5j, specs = pairwise ~ prevRew)
+emm_acc_summ <- emm_acc$contrasts %>% summary(infer = T)
+xtable(emm_acc_summ)
+
+emm_acc <- emmeans(acc_m5j, specs = "prevRew")
+pairs(emm_acc, by=NULL) %>% summary(infer = TRUE)
+```
+
+# VSR by current and previous reward GLMM
+```{r GLMM - VSR by current and previous reward}
+# In order to compare between platforms and version, only use Hi, HiSlow, and Low prev reward from probabilistic
+cleanChoicedata_rew <- cleanChoicedata %>% 
+  filter(prevRew == "hi" | prevRew == "hiSlow" | prevRew == "lo") %>% 
+  filter(!is.na("alt")) %>% 
+  droplevels()
+# Set contrasts
+# PrevRew - Compare all to Low
+contrasts(cleanChoicedata_rew$alt) <- contr.sum(2)
+contrasts(cleanChoicedata_rew$rewCond) <- contr.sum(2)
+contrasts(cleanChoicedata_rew$prevRew) <- contr.sum(3)
+contrasts(cleanChoicedata_rew$version) <- contr.sum(2)
+contrasts(cleanChoicedata_rew$platform) <- contr.sum(2)
+write_rds(cleanChoicedata_rew, file = here('Rdata','VTS_choiceData_rew.Rda'))
+```
+Due to prolonged runtime for complex RE structures the models were run with julia
+### Summarise data
+```{r Summary VSR by Prev and Curr Reward}
+summary_VSR_Rew <- cleanChoicedata_rew %>% 
+  group_by(participant, platform, version, rewCond, prevRew, alt) %>% 
+  filter(!is.na(alt)) %>% 
+  summarise(n = n(), .groups = "drop_last") %>%
+  ungroup() %>% 
+  complete(nesting(participant, platform, version), rewCond, prevRew, alt, fill = list(count = 0, VSR = NA)) %>% 
+  group_by(participant, platform, version, rewCond, prevRew) %>%
+  summarise(VSR = n[alt=="switch"]/sum(n), count=sum(n), .groups = "keep")
+
+summary_VSR_Rew %>% ungroup() %>% 
+  ggplot(aes(x = interaction(prevRew,rewCond), y = VSR)) +
+  ggbeeswarm::geom_quasirandom(alpha = 0.3) +
+  geom_boxplot(fill = "transparent") +
+  stat_summary(color = "red") +
+  facet_row("version") + facet_col("platform") + theme_ggeffects()
+```
+### Check odds frequency of each previous trial outcome
+```{r Contingency table for previous reward conditions}
+# From https://www.r-bloggers.com/2020/12/contingency-tables-in-r/
+
+rew_con1 <- xtabs(~prevRew + version + platform, data=cleanChoicedata_rew)
+rew_con1 %>% ftable(row.vars=c("version", "platform")) %>% prop.table(margin=1) %>% round(2)
+```
+```{r Odds-ratios for levels of prev reward}
+library(Rfast)
+for (i in 1:3) {
+  print(odds.ratio(rew_con1[i,,])$res[1])
+}
+```
+All OR close to 1, so conclude no influence of version or platform on prev rew prop
+
+### Load julia models
+``` {r VSR Prev Curr Reward Julia Best Fit}
+rew_m6_choice <- readRDS(here('Rdata','vsr_rew_m6j.Rds'))
+summary(rew_m6_choice)
+tab_model(rew_m6_choice, show.icc = F, show.re.var = F, show.obs = F, dv.labels = "", wrap.labels = 50, show.ngroups = F, digits = 4)
+```
+Model 6 is the best fit - uncorrelated additive RE
+```{r Check model assumptions}
+res.m6 <- residuals(rew_m6_choice)
+qqnorm(res.m6,)
+```
+#### Explore predictions for julia m6 model
+```{r Plot 4-way interaction, message=FALSE}
+emm_options(lmer.df = "asymptotic")
+theme_set(theme_sjplot2(base_size = 15, base_family = "Arial") +
+theme(legend.position = "top"))
+plot_model(rew_m6_choice, type = "emm", terms = c("prevRew", "rewCond","version","platform[inlab]"), axis.title = c("Previous Reward Outcome","Probability of Switch"), title = "", legend.title = "Current Reward", axis.lim = c(.15,.45))
+ggsave("SR_4way_inlab_plot.pdf", device = cairo_pdf, path = here("Rdata"))
+plot_model(rew_m6_choice, type = "emm", terms = c("prevRew", "rewCond","version","platform[online]"), axis.title = c("Previous Reward Outcome","Probability of Switch"), title = "", legend.title = "Current Reward", axis.lim = c(.15,.45))
+ggsave("SR_4way_online_plot.pdf", device = cairo_pdf, path = here("Rdata"))
+```
+```{r sr emmeans 1 - prevRew rewCond version platform}
+emm_sr1 <- emmeans(rew_m6_choice, specs = pairwise ~ prevRew:rewCond, by = c("version","platform"))
+emm_sr1_summ <- emm_sr1$contrasts %>% summary(infer = T)
+xtable(emm_sr1_summ)
+```
+
+```{r EMM table for interaction of previous & current reward by version}
+emm1 <- emmeans(rew_m4_choice, specs = c("prevRew","rewCond","version"), type = "response")
+custom <- list("HH-LL" = c(-1, 0, 0, 0, 1, 0, -1, 0, 0, 0, 1, 0),
+               "HH-Inc" = c(0, 0, 0, -1, 1, 0, 0, 0, 0, -1, 1, 0),
+               "HH-Dec" = c(0, -1, 0, 0, 1, 0, 0, -1, 0, 0, 1, 0), 
+               "HH-sH" = c(0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, -1),
+               "HH-sL" = c(0, 0, -1, 0, 1, 0, 0, 0, -1, 0, 1, 0),
+               "HH-LL-V" = c(-1, 0, 0, 0, 1, 0, 1, 0, 0, 0, -1, 0),
+               "HH-Inc-V" = c(0, 0, 0, -1, 1, 0, 0, 0, 0, 1, -1, 0),
+               "HH-Dec-V" = c(0, -1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0),
+               "HH-sH-V" = c(0, 0, 0, 0, 1, -1, 0, 0, 0, 0, -1, 1),
+               "HH-sL-V" = c(0, 0, -1, 0, 1, 0, 0, 0, 1, 0, -1, 0))
+contrast(regrid(emm1), method = custom, type = "response", adjust = "holm")
+```
+```{r Plot 3-way interaction prev curr rew by version, message=FALSE}
+plot_model(rew_m4_choice, type = "pred", terms = c("prevRew", "rewCond","version"), legend.title = "Reward Prospect", 
+           axis.title = c("Previous Reward", "Switch Probability"), colors = "Dark2", title = "")
+ggsave("3way_int_plot.pdf", device = cairo_pdf, path = here("Rdata"))
+```
+
+```{r vsr rew emmeans 1 - prevRew by rewCond by version}
+emm_rew1 <- emmeans(rew_m4_choice, specs = c("prevRew","rewCond", by = c("version")))
+pairs(emm_rew1, by=NULL) %>% summary(infer = TRUE)
+plot_model(rew_m4_choice, type = "emm", terms = c("prevRew","rewCond","version"))
+```
+```{r vsr rew emmeans 2 - prewRew by rewCond by platform}
+emm_rew1 <- emmeans(rew_m4_choice, specs = c("prevRew","rewCond", by = c("platform")))
+pairs(emm_rew1, by=NULL) %>% summary(infer = TRUE)
+plot_model(rew_m4_choice, type = "emm", terms = c("prevRew","rewCond","platform"))
+```
+```{r ANOVA-like table for rew_m3}
+joint_tests(rew_m4_choice)
+```
