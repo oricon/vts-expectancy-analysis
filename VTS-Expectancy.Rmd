@@ -18,6 +18,7 @@ library(afex)
 library(optimx)
 library(emmeans)
 library(ggeffects)
+library(ggbeeswarm)
 library(sjPlot)
 library(viridis)
 library(xtable)
@@ -29,20 +30,22 @@ knitr::opts_knit$set(root.dir = workdir)
 ```
 # Read in data
 ```{r Read in raw data, include=FALSE}
-filelist<- Sys.glob(file.path(workdir,"data","*","*_vts_reward_expectancy_*.csv"))
+filelist<- Sys.glob(file.path(workdir,"data","*","*vts_reward_expectancy_*.csv"))
 fulldata <- data.frame()
 
 for (file in filelist) {
   rawdata <- fread(file, nThread = 6)
   if ("OS" %in% colnames(rawdata)) {
-    data <- rawdata %>% select(participant, OS, browser, xResolution, yResolution,
-                             acc, E1, points_trial, points_cumul, alt, task, condition, rewCond,
-                             training_resp.rt,target_resp.rt, 
-                             training.thisN, trials_norew.thisRepN, trials_rew.thisRepN)
+    data <- rawdata %>% select(participant, acc, E1, points_trial, points_cumul, 
+                               alt, task, condition, rewExpect, rewCond, curr_shape, curr_topStim, 
+                               curr_bottStim, blockNum, LShape_ID, RShape_ID, 
+                               trainBlock, training.thisN, training_resp.keys, training_resp.rt, 
+                               target_resp.rt, target_resp.keys, trials_norew.thisRepN, trials_rew.thisRepN,
+                               OS, browser, xResolution, yResolution)
     data$platform = "online"
-    } else {
+    } else if ("rewExpect" %in% colnames(rawdata)) {
       data <- rawdata %>% select(participant, acc, E1, points_trial, points_cumul, 
-                               alt, task, condition, rewCond, currShape, curr_topStim, 
+                               alt, task, condition, rewExpect, rewCond, curr_shape, curr_topStim, 
                                curr_bottStim, blockNum, LShape_ID, RShape_ID, 
                                trainBlock, training.thisN, training_resp.keys, training_resp.rt, 
                                target_resp.rt, target_resp.keys, trials_norew.thisRepN, trials_rew.thisRepN)
@@ -51,39 +54,40 @@ for (file in filelist) {
       data$browser = NA
       data$xResolution = NA
       data$yResolution = NA
-    }
-  
-  if (grepl("probabilistic", file, fixed = TRUE) == "TRUE") {
-    data$version = "probabilistic"
-    } else if (grepl("deterministic", file, fixed = TRUE) == "TRUE") {
-      data$version = "deterministic"
+    } else {data <- rawdata %>% select(participant, acc, E1, points_trial, points_cumul, 
+                               alt, task, condition, rewCond, curr_shape, curr_topStim, 
+                               curr_bottStim, blockNum, LShape_ID, RShape_ID, 
+                               trainBlock, training.thisN, training_resp.keys, training_resp.rt, 
+                               target_resp.rt, target_resp.keys, trials_norew.thisRepN, trials_rew.thisRepN)
+      data$platform = "inlab"
+      data$OS = "MacIntel"
+      data$browser = NA
+      data$xResolution = NA
+      data$yResolution = NA
+      data$rewExpect = NA
       }
-  
-  if ( (data$version[1] == "probabilistic") && (data$platform[1] == "inlab") && (as.numeric(data$participant) > 1000)) {
-    data$participant <- as.numeric(data$participant) - 1000
-    }
-  data$participant <- as_factor(data$participant)
   
   data <- data %>% 
     mutate(condition = ifelse(!is.na(training.thisN), "training", data$condition))
   
-  # Blocks only logged at end, so need to define blockNum based on trial list restart
-  data <- unite(data, trialNum, c(training.thisN, trials_norew.thisRepN, trials_rew.thisRepN), na.rm = TRUE)
-  
-  data$blockNum <- as.factor(data$blockNum)
-  filename=sprintf("%s/data_parsed/%s_vts_reward_training_%s_%s.csv", workdir, data$participant[1], data$platform[1], data$version[1])
+  data <- data %>% 
+    filter(!rewCond == "vtsPrac") %>% 
+    filter(!(condition == "" & task == ""))
+  filename=sprintf("%s/data_parsed/%s_vts_reward_expectancy_%s.csv", workdir, 
+                   data$participant[1], data$platform[1])
   write.csv(data, filename)
-  fulldata <- rbind(fulldata,data)
+  fulldata <- rbind.data.frame(fulldata,data)
 }
 ```
-Read in data from 387 participants
+
 ```{r Recode variables}
 fulldata <- fulldata %>% 
   mutate(rewCond = ifelse(condition == "training", NA,fulldata$rewCond))
 fulldata <- unite(fulldata, RT, c(training_resp.rt, target_resp.rt), na.rm = TRUE)
 fulldata$RT <- as.numeric(fulldata$RT)
 fulldata$RT <- fulldata$RT * 1000 # convert from sec to ms  
-  
+
+fulldata <- unite(fulldata, trialNum, c(training.thisN, trials_norew.thisRepN, trials_rew.thisRepN), na.rm = TRUE)  
 fulldata$trialNum <- as.numeric(fulldata$trialNum)
 fulldata <- fulldata %>% filter(!is.na(trialNum))
   
@@ -130,7 +134,7 @@ init_subs <- fulldata %>% group_by(participant) %>% summarise(n=n())
 ```{r Read survey data}
 # http://ayanalytics.com/using-r-and-redcap-api-to-automate-exportimport-dataset/
 redcap_url <- "https://redcap.tamhsc.edu/redcap/api/"
-token_ex <- "yourmainproject"
+token_joe <- "8092328E3AA4D7901F5341ADA9DD1177" # Joe's redcap token
 
 raw_survey_inlabProb <- fetch_survey('SV_diJRHiCnA5iCKmW', time_zone = "America/Chicago", start_date = "2022-01-01", force_request = TRUE)
 survey_data_inlabProb <- raw_survey_inlabProb %>% 
@@ -248,6 +252,25 @@ Survey data from 444 participants. 62 participants have survey data without beha
 We didn't save incomplete data for online collections so 41 online participants didn't complete behavioral.
 
 # Data cleaning
+## Individual data quality checks
+```{r}
+qc_numTrials <- fulldata %>% 
+  mutate("condition" = case_when((task == "letter" | task == "number") ~ "test")) %>% 
+  group_by(participant, condition) %>% 
+  filter(condition == "test") %>% 
+  summarise(n = n(), .groups = "keep")
+lowTrials <- qc_numTrials %>% 
+  filter(n < 190) %>% 
+  select(participant)
+excludeSubjs <- lowTrials$participant
+```
+
+```{r}
+fulldata %>%
+  ggplot(aes(x= rewCond,y=RT)) + geom_beeswarm(cex = 3) + facet_wrap(~ participant, ncol = 2)
+```
+
+
 ## RT data cleaning
 ```{r Summary stats for RT data, echo=TRUE}
 summary_RT <- fulldata %>% 
