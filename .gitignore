@@ -5,3 +5,5 @@
 Rdata/
 data/
 data_parsed/
+renv.lock
+renv/
