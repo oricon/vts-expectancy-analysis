@@ -65,7 +65,7 @@
 "64",36290,NA,NA,10,388,"","","training","","","",NA,"",NA,"triangle","star",1,27,"a",2.64542317400264,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
 "65",36290,NA,NA,10,398,"","","training","","","",NA,"",NA,"star","circle",1,28,"a",2.8784651850001,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
 "66",36290,NA,NA,10,408,"","","training","","","",NA,"",NA,"star","triangle",1,29,"l",0.765020745002403,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
-"67",36290,NA,NA,1,409,"","","training","","","",NA,"",NA,"hexagon","circle",1,30,"a",2.76392524600305,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
+"67",36290,NA,NA,1,409,"","","training","","","",NA,"",NA,"hexagon","circle",1,30,"a",2.76392524600306,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
 "68",36290,NA,NA,10,419,"","","training","","","",NA,"",NA,"circle","triangle",1,31,"l",0.806972195005073,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
 "69",36290,NA,NA,10,429,"","","training","","","",NA,"",NA,"hexagon","star",1,32,"a",4.96405575600147,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
 "70",36290,NA,NA,1,430,"","","training","","","",NA,"",NA,"star","hexagon",1,33,"l",2.50938880600006,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
@@ -104,7 +104,7 @@
 "103",36290,NA,NA,10,652,"","","training","","","",NA,"",NA,"star","circle",2,30,"a",2.57079067700033,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
 "104",36290,NA,NA,1,653,"","","training","","","",NA,"",NA,"hexagon","star",2,31,"a",2.6392910670038,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
 "105",36290,NA,NA,10,663,"","","training","","","",NA,"",NA,"star","hexagon",2,32,"l",2.24084918800509,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
-"106",36290,NA,NA,10,673,"","","training","","","",NA,"",NA,"star","triangle",2,33,"l",1.03483595800571,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
+"106",36290,NA,NA,10,673,"","","training","","","",NA,"",NA,"star","triangle",2,33,"l",1.03483595800572,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
 "107",36290,NA,NA,1,674,"","","training","","","",NA,"",NA,"circle","star",2,34,"l",2.2206883100007,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
 "108",36290,NA,NA,10,684,"","","training","","","",NA,"",NA,"triangle","star",2,35,"a",0.590856490001897,NA,"",NA,NA,"inlab","MacIntel",NA,NA,NA
 "109",36290,1,0,0,684,"repeat","number","numRpt","","noRew","triangle",139,"Y",0,"","",NA,NA,"",NA,0.699719114003528,"d",0,NA,"inlab","MacIntel",NA,NA,NA
@@ -120,7 +120,7 @@
 "119",36290,1,0,0,684,"switch","number","numSwt","","noRew","hexagon",181,"Y",0,"","",NA,NA,"",NA,0.653866528002254,"f",10,NA,"inlab","MacIntel",NA,NA,NA
 "120",36290,1,0,0,684,"switch","letter","lettSwt","","noRew","circle",146,"B",0,"","",NA,NA,"",NA,0.869280182003422,"j",11,NA,"inlab","MacIntel",NA,NA,NA
 "121",36290,1,0,0,684,"repeat","letter","lettRpt","","noRew","circle",174,"F",0,"","",NA,NA,"",NA,0.734324355002173,"j",12,NA,"inlab","MacIntel",NA,NA,NA
-"122",36290,1,0,0,684,"switch","number","numSwt","","noRew","triangle",146,"W",0,"","",NA,NA,"",NA,0.994251876003545,"d",13,NA,"inlab","MacIntel",NA,NA,NA
+"122",36290,1,0,0,684,"switch","number","numSwt","","noRew","triangle",146,"W",0,"","",NA,NA,"",NA,0.994251876003546,"d",13,NA,"inlab","MacIntel",NA,NA,NA
 "123",36290,1,0,0,684,"repeat","number","numRpt","","noRew","triangle",125,"D",0,"","",NA,NA,"",NA,0.588769896003214,"d",14,NA,"inlab","MacIntel",NA,NA,NA
 "124",36290,1,0,0,684,"repeat","number","numRpt","","noRew","hexagon",139,"B",0,"","",NA,NA,"",NA,1.19244187500226,"d",15,NA,"inlab","MacIntel",NA,NA,NA
 "125",36290,1,0,0,684,"switch","letter","lettSwt","","noRew","triangle",125,"U",0,"","",NA,NA,"",NA,0.867515740003,"k",16,NA,"inlab","MacIntel",NA,NA,NA
@@ -159,7 +159,7 @@
 "158",36290,1,0,0,684,"repeat","number","numRpt","","noRew","triangle",181,"U",0,"","",NA,NA,"",NA,0.734852408004372,"f",49,NA,"inlab","MacIntel",NA,NA,NA
 "159",36290,1,0,0,684,"repeat","number","numRpt","","noRew","hexagon",167,"W",0,"","",NA,NA,"",NA,1.06876724500398,"f",50,NA,"inlab","MacIntel",NA,NA,NA
 "160",36290,1,0,0,684,"repeat","number","numRpt","","noRew","triangle",160,"B",0,"","",NA,NA,"",NA,1.43598716200358,"f",51,NA,"inlab","MacIntel",NA,NA,NA
-"161",36290,1,0,0,684,"repeat","number","numRpt","","noRew","star",167,"F",0,"","",NA,NA,"",NA,1.12359703100446,"f",52,NA,"inlab","MacIntel",NA,NA,NA
+"161",36290,1,0,0,684,"repeat","number","numRpt","","noRew","star",167,"F",0,"","",NA,NA,"",NA,1.12359703100447,"f",52,NA,"inlab","MacIntel",NA,NA,NA
 "162",36290,1,0,0,684,"switch","letter","lettSwt","","noRew","triangle",146,"S",0,"","",NA,NA,"",NA,0.808450676002394,"k",53,NA,"inlab","MacIntel",NA,NA,NA
 "163",36290,1,0,0,684,"repeat","letter","lettRpt","","noRew","circle",181,"U",0,"","",NA,NA,"",NA,0.690281490002235,"k",54,NA,"inlab","MacIntel",NA,NA,NA
 "164",36290,1,0,0,684,"repeat","letter","lettRpt","","noRew","triangle",174,"D",0,"","",NA,NA,"",NA,0.744137743004103,"j",55,NA,"inlab","MacIntel",NA,NA,NA
@@ -217,7 +217,7 @@
 "216",36290,1,0,1,882,"repeat","letter","lettRpt","low","noRew","hexagon",167,"D",1,"","",NA,NA,"",NA,0.539477084003011,"j",NA,11,"inlab","MacIntel",NA,NA,NA
 "217",36290,1,0,10,892,"switch","number","numSwt","low","noRew","star",174,"W",1,"","",NA,NA,"",NA,0.344596927003295,"f",NA,12,"inlab","MacIntel",NA,NA,NA
 "218",36290,1,0,10,902,"repeat","number","numRpt","low","noRew","hexagon",139,"F",1,"","",NA,NA,"",NA,0.397743788002117,"d",NA,13,"inlab","MacIntel",NA,NA,NA
-"219",36290,1,0,1,903,"repeat","number","numRpt","low","noRew","star",181,"H",1,"","",NA,NA,"",NA,0.343832203005149,"f",NA,14,"inlab","MacIntel",NA,NA,NA
+"219",36290,1,0,1,903,"repeat","number","numRpt","low","noRew","star",181,"H",1,"","",NA,NA,"",NA,0.34383220300515,"f",NA,14,"inlab","MacIntel",NA,NA,NA
 "220",36290,1,0,10,913,"repeat","number","numRpt","low","noRew","hexagon",146,"B",1,"","",NA,NA,"",NA,0.581931512002484,"d",NA,15,"inlab","MacIntel",NA,NA,NA
 "221",36290,1,0,10,923,"repeat","number","numRpt","low","noRew","hexagon",160,"D",1,"","",NA,NA,"",NA,0.481252019002568,"f",NA,16,"inlab","MacIntel",NA,NA,NA
 "222",36290,1,0,1,924,"switch","letter","lettSwt","low","noRew","star",146,"U",1,"","",NA,NA,"",NA,0.368963173001248,"k",NA,17,"inlab","MacIntel",NA,NA,NA
@@ -239,7 +239,7 @@
 "238",36290,1,1,10,980,"switch","number","numSwt","low","noRew","hexagon",139,"W",2,"","",NA,NA,"",NA,0.434794808003062,"d",NA,1,"inlab","MacIntel",NA,NA,NA
 "239",36290,1,0,1,981,"repeat","number","numRpt","low","noRew","star",146,"U",2,"","",NA,NA,"",NA,0.451396671003749,"d",NA,2,"inlab","MacIntel",NA,NA,NA
 "240",36290,1,0,1,982,"switch","letter","lettSwt","low","noRew","hexagon",132,"S",2,"","",NA,NA,"",NA,0.548322702004953,"k",NA,3,"inlab","MacIntel",NA,NA,NA
-"241",36290,1,0,1,983,"repeat","letter","lettRpt","low","noRew","hexagon",174,"Y",2,"","",NA,NA,"",NA,0.417868070002442,"k",NA,4,"inlab","MacIntel",NA,NA,NA
+"241",36290,1,0,1,983,"repeat","letter","lettRpt","low","noRew","hexagon",174,"Y",2,"","",NA,NA,"",NA,0.417868070002441,"k",NA,4,"inlab","MacIntel",NA,NA,NA
 "242",36290,1,0,1,984,"repeat","letter","lettRpt","low","noRew","star",167,"B",2,"","",NA,NA,"",NA,0.46751383400624,"j",NA,5,"inlab","MacIntel",NA,NA,NA
 "243",36290,1,0,0,984,"repeat","letter","lettRpt","low","noRew","star",160,"H",2,"","",NA,NA,"",NA,0.531292922005377,"j",NA,6,"inlab","MacIntel",NA,NA,NA
 "244",36290,1,0,10,994,"switch","number","numSwt","low","noRew","hexagon",125,"F",2,"","",NA,NA,"",NA,0.495778152002458,"d",NA,7,"inlab","MacIntel",NA,NA,NA
@@ -334,7 +334,7 @@
 "333",36290,1,0,10,1293,"repeat","letter","lettRpt","high","noRew","triangle",160,"D",5,"","",NA,NA,"",NA,0.439563395000732,"j",NA,0,"inlab","MacIntel",NA,NA,NA
 "334",36290,1,0,1,1294,"switch","number","numSwt","high","noRew","circle",139,"Y",5,"","",NA,NA,"",NA,0.391244344002189,"d",NA,1,"inlab","MacIntel",NA,NA,NA
 "335",36290,1,0,0,1294,"switch","letter","lettSwt","high","noRew","triangle",181,"F",5,"","",NA,NA,"",NA,0.475677522004844,"j",NA,2,"inlab","MacIntel",NA,NA,NA
-"336",36290,1,0,1,1295,"switch","number","numSwt","high","noRew","circle",174,"S",5,"","",NA,NA,"",NA,0.467880403000891,"f",NA,3,"inlab","MacIntel",NA,NA,NA
+"336",36290,1,0,1,1295,"switch","number","numSwt","high","noRew","circle",174,"S",5,"","",NA,NA,"",NA,0.46788040300089,"f",NA,3,"inlab","MacIntel",NA,NA,NA
 "337",36290,1,0,10,1305,"repeat","number","numRpt","high","noRew","circle",132,"B",5,"","",NA,NA,"",NA,0.338701661003142,"d",NA,4,"inlab","MacIntel",NA,NA,NA
 "338",36290,0,0,0,1305,"repeat","number",NA,"high","noRew","triangle",146,"U",5,"","",NA,NA,"",NA,0.495988575003139,"f",NA,5,"inlab","MacIntel",NA,NA,NA
 "339",36290,1,1,0,1305,"repeat","number","numRpt","high","noRew","triangle",125,"W",5,"","",NA,NA,"",NA,0.511239672003285,"d",NA,6,"inlab","MacIntel",NA,NA,NA
@@ -342,7 +342,7 @@
 "341",36290,1,0,1,1307,"repeat","number","numRpt","high","noRew","circle",160,"D",5,"","",NA,NA,"",NA,0.477035068004625,"f",NA,8,"inlab","MacIntel",NA,NA,NA
 "342",36290,1,0,0,1307,"switch","letter","lettSwt","high","noRew","triangle",139,"Y",5,"","",NA,NA,"",NA,0.501809827001125,"k",NA,9,"inlab","MacIntel",NA,NA,NA
 "343",36290,1,0,1,1308,"repeat","letter","lettRpt","high","noRew","circle",181,"F",5,"","",NA,NA,"",NA,0.517270719999942,"j",NA,10,"inlab","MacIntel",NA,NA,NA
-"344",36290,1,0,0,1308,"repeat","letter","lettRpt","high","noRew","triangle",174,"S",5,"","",NA,NA,"",NA,0.467126732004544,"k",NA,11,"inlab","MacIntel",NA,NA,NA
+"344",36290,1,0,0,1308,"repeat","letter","lettRpt","high","noRew","triangle",174,"S",5,"","",NA,NA,"",NA,0.467126732004545,"k",NA,11,"inlab","MacIntel",NA,NA,NA
 "345",36290,1,0,1,1309,"switch","number","numSwt","high","noRew","circle",132,"B",5,"","",NA,NA,"",NA,0.667541917002382,"d",NA,12,"inlab","MacIntel",NA,NA,NA
 "346",36290,1,0,0,1309,"switch","letter","lettSwt","high","noRew","triangle",146,"U",5,"","",NA,NA,"",NA,0.498660111003119,"k",NA,13,"inlab","MacIntel",NA,NA,NA
 "347",36290,1,0,0,1309,"repeat","letter","lettRpt","high","noRew","triangle",125,"W",5,"","",NA,NA,"",NA,0.48185712900522,"k",NA,14,"inlab","MacIntel",NA,NA,NA

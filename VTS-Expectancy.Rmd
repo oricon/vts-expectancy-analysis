@@ -87,16 +87,20 @@ fulldata <- unite(fulldata, RT, c(training_resp.rt, target_resp.rt), na.rm = TRU
 fulldata$RT <- as.numeric(fulldata$RT)
 fulldata$RT <- fulldata$RT * 1000 # convert from sec to ms  
 
+fulldata <- fulldata %>% 
+  mutate(condition = ifelse(acc == 0, "error", fulldata$condition))
+
+fulldata <- fulldata %>% 
+  mutate(rewCond = case_when(rewCond == "noRew" & !is.na(trials_rew.thisRepN) ~ "Rew",
+                             rewCond == "Lo" ~ "Lo",
+                             rewCond == "Hi" ~ "Hi",
+                             rewCond == "noRew" ~ "noRew"))
+fulldata$rewCond <- as.factor(fulldata$rewCond)
+fulldata$rewCond <- relevel(fulldata$rewCond, "Hi")
+
 fulldata <- unite(fulldata, trialNum, c(training.thisN, trials_norew.thisRepN, trials_rew.thisRepN), na.rm = TRUE)  
 fulldata$trialNum <- as.numeric(fulldata$trialNum)
 fulldata <- fulldata %>% filter(!is.na(trialNum))
-  
-fulldata <- fulldata %>% 
-  mutate(rewCond = case_when(rewCond == 1 ~ "Lo",
-                             rewCond == 2 ~ "Hi",
-                             rewCond == "noRew" ~ "NoRew"))
-fulldata$rewCond <- as.factor(fulldata$rewCond)
-fulldata$rewCond <- relevel(fulldata$rewCond, "Hi")
 
 # Previous Trial Reward Outcome
 fulldata$prevRew=NA
@@ -111,20 +115,18 @@ fulldata$prevRew <- as.factor(fulldata$prevRew)
 # Make Low first
 fulldata$prevRew <- relevel(fulldata$prevRew, "hi")
   
-# determine reward transition
-# rewCond 1 is low reward, rewCond 2 is high reward (response contingent)
-fulldata$rewTrans=NA
-fulldata <- fulldata %>% 
-  mutate(rewTrans = case_when(trialNum>0 & rewCond=="Lo" & lag(rewCond)=="Lo" ~ "remainLo",
-                              trialNum>0 & rewCond=="Hi" & lag(rewCond)=="Hi" ~ "remainHi",
-                              trialNum>0 & rewCond=="Hi" & lag(rewCond)=="Lo" ~ "increase",
-                              trialNum>0 & rewCond=="Lo" & lag(rewCond)=="Hi" ~ "decrease"))
-fulldata$rewTrans <- as.factor(fulldata$rewTrans)
-# Set increase to reference level
-fulldata$rewTrans <- relevel(fulldata$rewTrans, "remainHi")
+# # determine reward transition
+# # rewCond 1 is low reward, rewCond 2 is high reward (response contingent)
+# fulldata$rewTrans=NA
+# fulldata <- fulldata %>% 
+#   mutate(rewTrans = case_when(trialNum>0 & rewCond=="Lo" & lag(rewCond)=="Lo" ~ "remainLo",
+#                               trialNum>0 & rewCond=="Hi" & lag(rewCond)=="Hi" ~ "remainHi",
+#                               trialNum>0 & rewCond=="Hi" & lag(rewCond)=="Lo" ~ "increase",
+#                               trialNum>0 & rewCond=="Lo" & lag(rewCond)=="Hi" ~ "decrease"))
+# fulldata$rewTrans <- as.factor(fulldata$rewTrans)
+# # Set increase to reference level
+# fulldata$rewTrans <- relevel(fulldata$rewTrans, "remainHi")
   
-fulldata$version <- as.factor(fulldata$version)
-fulldata$version <- relevel(fulldata$version, "deterministic")
 fulldata$platform <- as.factor(fulldata$platform)
 fulldata$platform <- relevel(fulldata$platform, "inlab")
 init_subs <- fulldata %>% group_by(participant) %>% summarise(n=n())
@@ -132,45 +134,10 @@ init_subs <- fulldata %>% group_by(participant) %>% summarise(n=n())
 
 # Read data from REDcap surveys
 ```{r Read survey data}
-# http://ayanalytics.com/using-r-and-redcap-api-to-automate-exportimport-dataset/
-redcap_url <- "https://redcap.tamhsc.edu/redcap/api/"
-token_joe <- "8092328E3AA4D7901F5341ADA9DD1177" # Joe's redcap token
-
-raw_survey_inlabProb <- fetch_survey('SV_diJRHiCnA5iCKmW', time_zone = "America/Chicago", start_date = "2022-01-01", force_request = TRUE)
-survey_data_inlabProb <- raw_survey_inlabProb %>% 
-  select(1,2,6,19:64)
-names(survey_data_inlabProb) <- c('StartDate','EndDate','Duration','ID','Consent','Gender','Age','Colorblind','Colorblind_type','Education','Race_White','Race_Hispanic','Race_Black','Race_NativeHaw','Race_Asian','Race_Indian','Race_MiddleEast','Race_Other','Race_Mixed','Race_NA','Race_OtherText','Tobacco_Freq','AlcoholFreq','AlcoholQuant','DrugsFreq','BISBAS1','BISBAS2','BISBAS3','BISBAS4','BISBAS5','BISBAS6','BISBAS7','BISBAS8','BISBAS9','BISBAS10','BISBAS11','BISBAS12','BISBAS13','BISBAS14','BISBAS15','BISBAS16','BISBAS17','BISBAS18','BISBAS19','BISBAS20','BISBAS21','BISBAS22','BISBAS23','BISBAS24')
-survey_data_inlabProb <- survey_data_inlabProb %>% 
-  mutate(ID = ifelse(ID > 1000, survey_data_inlabProb$ID-1000, survey_data_inlabProb$ID))
-# remove 38 & 65 duplicate that doesn't have behavioral data
-survey_data_inlabProb <- survey_data_inlabProb[-c(35, 100, 107), ]
-# participant 69 was entered as 65 for the survey
-survey_data_inlabProb$ID[64]=69
-survey_data_inlabProb$ID[67]=71.2
-
-raw_survey_inlabDet <- fetch_survey('SV_diJRHiCnA5iCKmW', time_zone = "America/Chicago", end_date = "2022-01-01", force_request = TRUE)
-survey_data_inlabDet <- raw_survey_inlabDet %>% 
-  select(1,2,6,19:64)
-names(survey_data_inlabDet) <- c('StartDate','EndDate','Duration','ID','Consent','Gender','Age','Colorblind','Colorblind_type','Education','Race_White','Race_Hispanic','Race_Black','Race_NativeHaw','Race_Asian','Race_Indian','Race_MiddleEast','Race_Other','Race_Mixed','Race_NA','Race_OtherText','Tobacco_Freq','AlcoholFreq','AlcoholQuant','DrugsFreq','BISBAS1','BISBAS2','BISBAS3','BISBAS4','BISBAS5','BISBAS6','BISBAS7','BISBAS8','BISBAS9','BISBAS10','BISBAS11','BISBAS12','BISBAS13','BISBAS14','BISBAS15','BISBAS16','BISBAS17','BISBAS18','BISBAS19','BISBAS20','BISBAS21','BISBAS22','BISBAS23','BISBAS24')
-survey_data_inlabDet$ID <- as.numeric(survey_data_inlabDet$ID)
-survey_data_inlabDet <- survey_data_inlabDet %>%
-  filter(ID<1150 & ID > 1000)
-survey_data_inlabDet$ID[26]=1034.2
-survey_data_inlabDet$ID[75]=1082.2
-# remove duplicate 1094 - entries were close in time
-survey_data_inlabDet <- survey_data_inlabDet[-c(88), ]
-
-raw_survey_online <- fetch_survey('SV_eFL2sd30qpH8i46', time_zone = "America/Chicago", force_request = TRUE)
-survey_data_online <- raw_survey_online %>% 
-  select(18:68, 72)
-names(survey_data_online) <- c('Consent','Mobile','Alone','Music','Activity','Gender','Age','Colorblind','Colorblind_type','Education','Race_White','Race_Hispanic','Race_Black','Race_NativeHaw','Race_Asian','Race_Indian','Race_MiddleEast','Race_Other','Race_Mixed','Race_NA','Race_OtherText','Tobacco_Freq','AttnCheck','AlcoholFreq','AlcoholQuant','DrugsFreq','BISBAS1','BISBAS2','BISBAS3','BISBAS4','BISBAS5','BISBAS6','BISBAS7','BISBAS8','BISBAS9','BISBAS10','BISBAS11','BISBAS12','BISBAS13','BISBAS14','BISBAS15','BISBAS16','BISBAS17','BISBAS18','AttnCheck2','BISBAS19','BISBAS20','BISBAS21','BISBAS22','BISBAS23','BISBAS24','ID')
-survey_data_online <- survey_data_online %>% 
-  distinct(ID, .keep_all = TRUE)
-
-survey_data_inlabDet <- survey_data_inlabDet %>% 
-  select('ID','Gender','Age','Colorblind','Colorblind_type','Education','Race_White','Race_Hispanic','Race_Black','Race_NativeHaw','Race_Asian','Race_Indian','Race_MiddleEast','Race_Other','Race_Mixed','Race_NA','Race_OtherText','Tobacco_Freq','AlcoholFreq','AlcoholQuant','DrugsFreq','BISBAS1','BISBAS2','BISBAS3','BISBAS4','BISBAS5','BISBAS6','BISBAS7','BISBAS8','BISBAS9','BISBAS10','BISBAS11','BISBAS12','BISBAS13','BISBAS14','BISBAS15','BISBAS16','BISBAS17','BISBAS18','BISBAS19','BISBAS20','BISBAS21','BISBAS22','BISBAS23','BISBAS24')
-survey_data_inlabProb <- survey_data_inlabProb %>% 
-  select('ID','Gender','Age','Colorblind','Colorblind_type','Education','Race_White','Race_Hispanic','Race_Black','Race_NativeHaw','Race_Asian','Race_Indian','Race_MiddleEast','Race_Other','Race_Mixed','Race_NA','Race_OtherText','Tobacco_Freq','AlcoholFreq','AlcoholQuant','DrugsFreq','BISBAS1','BISBAS2','BISBAS3','BISBAS4','BISBAS5','BISBAS6','BISBAS7','BISBAS8','BISBAS9','BISBAS10','BISBAS11','BISBAS12','BISBAS13','BISBAS14','BISBAS15','BISBAS16','BISBAS17','BISBAS18','BISBAS19','BISBAS20','BISBAS21','BISBAS22','BISBAS23','BISBAS24')
+JOE_TOKEN = "8092328E3AA4D7901F5341ADA9DD1177"
+URL = "https://redcap.tamhsc.edu/api/"
+rcon <- redcapConnection(url=URL, token=JOE_TOKEN)
+df_redcap <- exportRecords(rcon)
 
 survey_data_online <- survey_data_online %>% 
   select('ID','Gender','Age','Colorblind','Colorblind_type','Education','Race_White','Race_Hispanic','Race_Black','Race_NativeHaw','Race_Asian','Race_Indian','Race_MiddleEast','Race_Other','Race_Mixed','Race_NA','Race_OtherText','Tobacco_Freq','AlcoholFreq','AlcoholQuant','DrugsFreq','BISBAS1','BISBAS2','BISBAS3','BISBAS4','BISBAS5','BISBAS6','BISBAS7','BISBAS8','BISBAS9','BISBAS10','BISBAS11','BISBAS12','BISBAS13','BISBAS14','BISBAS15','BISBAS16','BISBAS17','BISBAS18','BISBAS19','BISBAS20','BISBAS21','BISBAS22','BISBAS23','BISBAS24')
@@ -263,11 +230,23 @@ lowTrials <- qc_numTrials %>%
   filter(n < 190) %>% 
   select(participant)
 excludeSubjs <- lowTrials$participant
+nSubs <- nrow(qc_numTrials)
 ```
 
 ```{r}
-fulldata %>%
-  ggplot(aes(x= rewCond,y=RT)) + geom_beeswarm(cex = 3) + facet_wrap(~ participant, ncol = 2)
+n_pages <- ceiling(nSubs/15)
+p <- fulldata %>% 
+  filter(acc == 1) %>% 
+  filter(RT < 10000) %>% 
+  ggplot(aes(x=RT)) + geom_histogram(bins=20) + 
+  facet_wrap_paginate(~ participant, nrow = 5, ncol = 3) +
+  ggtitle("Histogram of Correct RTs")
+for(i in 1:n_pages(p)){
+  p_save <-  p + 
+    facet_wrap_paginate(~ participant, nrow = 5, ncol = 3, page = i)
+  ggsave(plot = p_save, filename = paste0('RT_hist_', i, '.pdf'), 
+         device = cairo_pdf, path = here("Rdata"))
+}
 ```
 
 
@@ -315,7 +294,7 @@ Exclude 2 RT outlier
 ```{r Summarise Accuracy Data, warning=FALSE}
 summary_ACC <- fulldata %>% 
   filter(!condition == "training") %>% 
-  group_by(participant, platform, version) %>% 
+  group_by(participant) %>% 
   summarise(ACC = mean(acc, na.rm = TRUE), 
             asinACC = asin(sqrt((mean(acc, na.rm = TRUE)))), 
             count=sum(!is.na(RT)), .groups = "keep")
@@ -324,18 +303,10 @@ summary(summary_ACC)
 ``` {r Plot Accuracy Histogram}
 summary_ACC %>% 
   ggplot(aes(x=ACC)) + 
-  facet_grid(rows = vars(platform), cols = vars(version)) +
   geom_histogram(binwidth=.02) + 
-  geom_vline(data = filter(summary_ACC, version=="deterministic", platform=="inlab"),
-             aes(xintercept=median(ACC)), color="blue", linetype="dashed", size=1) +
-  geom_vline(data = filter(summary_ACC, version=="deterministic", platform=="online"),
-             aes(xintercept=median(ACC)), color="blue", linetype="dashed", size=1) +
-  geom_vline(data = filter(summary_ACC, version=="probabilistic", platform=="inlab"),
-             aes(xintercept=median(ACC)), color="blue", linetype="dashed", size=1) +
-  geom_vline(data = filter(summary_ACC, version=="probabilistic", platform=="online"),
-             aes(xintercept=median(ACC)), color="blue", linetype="dashed", size=1) +
-  scale_x_continuous(name="Accuracy", breaks = seq(0, 1, .1)) +
-  scale_y_continuous(name = "Count", breaks = seq(0,30,5))
+  geom_vline(aes(xintercept=median(ACC)), color="blue", linetype="dashed", size=1) +
+  scale_x_continuous(name="Accuracy", breaks = seq(0, 1, .05)) +
+  scale_y_continuous(name = "Count", breaks = seq(0,10,1))
 ```
 All levels of platform and platform have similar distributions for ACC
 ``` {r Check acc outliers}
@@ -348,7 +319,7 @@ ACC_exclude <- subset(ACC_outliers,is.extreme=="TRUE") %>% select(participant)
 excludeSubjs <- rbind(excludeSubjs,ACC_exclude)
 excludeSubjs <- unique(excludeSubjs)
 ```
-Exclude 6 ACC outliers
+Exclude 2 ACC outliers
 
 ## Exclude participants who did not pay attention in training
 ### Compare points_total during training to identify outliers
@@ -368,24 +339,16 @@ Exclude 10 people with poor training, ie below 500 points
 ## task choice data cleaning
 ```{r summary of task choice, warning=FALSE}
 summary_task_choice <- fulldata %>%
-  group_by(participant, platform, version, task) %>% 
-  summarise(n = n()) %>% 
+  group_by(participant, task) %>% 
+  summarise(n = n(), .groups = "keep") %>% 
   summarise(lettProp = sum(n[task=="letter"])/sum(n), .groups = "keep")
 summary(summary_task_choice)
 ```
 ```{r plot task choice histogram}
 summary_task_choice %>% 
   ggplot(aes(x=lettProp)) + 
-  facet_grid(rows = vars(platform), cols = vars(version)) +
   geom_histogram(binwidth=.03) + 
-  geom_vline(data = filter(summary_task_choice, version=="deterministic", platform=="inlab"),
-             aes(xintercept=median(lettProp)), color="blue", linetype="dashed", size=1) +
-  geom_vline(data = filter(summary_task_choice, version=="deterministic", platform=="online"),
-             aes(xintercept=median(lettProp)), color="blue", linetype="dashed", size=1) +
-  geom_vline(data = filter(summary_task_choice, version=="probabilistic", platform=="inlab"),
-             aes(xintercept=median(lettProp)), color="blue", linetype="dashed", size=1) +
-  geom_vline(data = filter(summary_task_choice, version=="probabilistic", platform=="online"),
-             aes(xintercept=median(lettProp)), color="blue", linetype="dashed", size=1) +
+  geom_vline(aes(xintercept=median(lettProp)), color="blue", linetype="dashed", size=1) + 
   scale_x_continuous(name="Letter Task Choice Proportion", breaks = seq(0, 1, .1)) +
   scale_y_continuous(name = "Count", breaks = seq(0,30,5))
 ```
@@ -412,25 +375,17 @@ excludeSubjs <- unique(excludeSubjs)
 ## VSR data cleaning
 ```{r Summarise switch rate, warning=FALSE}
 summary_VSR <- fulldata %>% 
-  group_by(participant, platform, version, alt) %>%
-  dplyr::summarise(n = n(), .groups = "drop_last") %>%
-  dplyr::summarise(VSR = n[alt=="switch"]/sum(n), count=sum(n), .groups = "keep") %>% 
+  group_by(participant, alt) %>%
+  summarise(n = n(), .groups = "drop_last") %>%
+  summarise(VSR = n[alt=="switch"]/sum(n), count=sum(n), .groups = "keep") %>% 
   filter(!is.na(VSR))
 summary(summary_VSR)
 ```
 ``` {r Plot VSR distribution}
 summary_VSR %>% 
   ggplot(aes(x=VSR)) + 
-  facet_grid(rows = vars(platform), cols = vars(version)) +
   geom_histogram(binwidth=.05) +
-  geom_vline(data = filter(summary_VSR, version=="deterministic", platform=="inlab"), aes(xintercept=median(VSR)),
-             color="blue", linetype="dashed", size=1) +
-  geom_vline(data = filter(summary_VSR, version=="deterministic", platform=="online"), aes(xintercept=median(VSR)),
-             color="blue", linetype="dashed", size=1) +
-  geom_vline(data = filter(summary_VSR, version=="probabilistic", platform=="inlab"), aes(xintercept=median(VSR)),
-             color="blue", linetype="dashed", size=1) +
-  geom_vline(data = filter(summary_VSR, version=="probabilistic", platform=="online"), aes(xintercept=median(VSR)),
-             color="blue", linetype="dashed", size=1) +
+  geom_vline(aes(xintercept=median(VSR)), color="blue", linetype="dashed", size=1) +
   scale_x_continuous(name="Voluntary Switch Rate", breaks = seq(0.0, 1.0, .1)) +
   scale_y_continuous(name = "Count", breaks = seq(0,30,5))
 ```
