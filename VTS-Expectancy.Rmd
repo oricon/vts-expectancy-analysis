@@ -21,6 +21,7 @@ library(ggeffects)
 library(ggbeeswarm)
 library(sjPlot)
 library(viridis)
+library(RColorBrewer)
 library(xtable)
 library(redcapAPI)
 ```
@@ -91,6 +92,10 @@ fulldata <- fulldata %>%
   mutate(condition = ifelse(acc == 0, "error", fulldata$condition))
 
 fulldata <- fulldata %>% 
+  mutate(condition = ifelse(!is.na(trainBlock), "training", fulldata$condition))
+
+
+fulldata <- fulldata %>% 
   mutate(rewCond = case_when(rewCond == "noRew" & !is.na(trials_rew.thisRepN) ~ "Rew",
                              rewCond == "Lo" ~ "Lo",
                              rewCond == "Hi" ~ "Hi",
@@ -133,7 +138,7 @@ init_subs <- fulldata %>% group_by(participant) %>% summarise(n=n())
 ```
 
 # Read data from REDcap surveys
-```{r Read survey data}
+```{r Read survey data, eval=FALSE, include=FALSE}
 JOE_TOKEN = "8092328E3AA4D7901F5341ADA9DD1177"
 URL = "https://redcap.tamhsc.edu/api/"
 rcon <- redcapConnection(url=URL, token=JOE_TOKEN)
@@ -148,7 +153,7 @@ only_surveys <- survey_data$ID[!(survey_data$ID %in% fulldata$participant)]
 participant_demos <- survey_data %>% filter(ID %in% fulldata$participant)
 ```
 
-``` {r convert questionnaires}
+```{undefined eval=FALSE, include=FALSE}
 # Convert Race to 1/0 - When multiple are selected the totals will be more than the total n
 participant_demos <- participant_demos %>% mutate(Race_White = ifelse(!is.na(Race_White),1,0)) %>% 
   mutate(Race_Hispanic = ifelse(!is.na(Race_Hispanic),1,0)) %>% 
@@ -254,7 +259,7 @@ for(i in 1:n_pages(p)){
 ```{r Summary stats for RT data, echo=TRUE}
 summary_RT <- fulldata %>% 
   filter(!condition == "training") %>% 
-  group_by(participant, platform, version) %>%
+  group_by(participant, platform) %>%
   filter(RT>200 & acc==1 & E1==0) %>% 
   summarise(meanRT = mean(RT, na.rm = TRUE),
             logRT = log10(meanRT),
@@ -265,15 +270,11 @@ summary(summary_RT)
 ```{r Plot RT Histogram, echo=TRUE}
 summary_RT %>% 
   ggplot(aes(x=meanRT)) + 
-  facet_grid(rows = vars(platform), cols = vars(version)) +
-  geom_histogram(binwidth=50) +
-  geom_vline(data = filter(summary_RT, version=="deterministic", platform=="inlab"),
+  facet_grid(rows = vars(platform)) +
+  geom_histogram(bins=7) +
+  geom_vline(data = filter(summary_RT, platform=="inlab"),
              aes(xintercept=median(meanRT)), color="blue", linetype="dashed", size=1) +
-  geom_vline(data = filter(summary_RT, version=="deterministic", platform=="online"),
-             aes(xintercept=median(meanRT)), color="blue", linetype="dashed", size=1) +
-  geom_vline(data = filter(summary_RT, version=="probabilistic", platform=="inlab"),
-             aes(xintercept=median(meanRT)), color="blue", linetype="dashed", size=1) +
-  geom_vline(data = filter(summary_RT, version=="probabilistic", platform=="online"),
+  geom_vline(data = filter(summary_RT, platform=="online"),
              aes(xintercept=median(meanRT)), color="blue", linetype="dashed", size=1) +
   scale_x_continuous(name="Mean RT", breaks = seq(400,1500,200)) +
   scale_y_continuous(name = "Count", breaks = seq(0,20,5))
@@ -289,7 +290,7 @@ RT_outliers <- fulldata %>%
 RT_exclude <- subset(RT_outliers,is.extreme=="TRUE") %>% select(participant)
 excludeSubjs <- RT_exclude
 ```
-Exclude 2 RT outlier
+0 excluded with 46 subjects total
 ## ACC data cleaning
 ```{r Summarise Accuracy Data, warning=FALSE}
 summary_ACC <- fulldata %>% 
@@ -303,10 +304,10 @@ summary(summary_ACC)
 ``` {r Plot Accuracy Histogram}
 summary_ACC %>% 
   ggplot(aes(x=ACC)) + 
-  geom_histogram(binwidth=.02) + 
+  geom_histogram(bins=8) + 
   geom_vline(aes(xintercept=median(ACC)), color="blue", linetype="dashed", size=1) +
   scale_x_continuous(name="Accuracy", breaks = seq(0, 1, .05)) +
-  scale_y_continuous(name = "Count", breaks = seq(0,10,1))
+  scale_y_continuous(name = "Count", breaks = seq(0,30,5))
 ```
 All levels of platform and platform have similar distributions for ACC
 ``` {r Check acc outliers}
@@ -319,9 +320,9 @@ ACC_exclude <- subset(ACC_outliers,is.extreme=="TRUE") %>% select(participant)
 excludeSubjs <- rbind(excludeSubjs,ACC_exclude)
 excludeSubjs <- unique(excludeSubjs)
 ```
-Exclude 2 ACC outliers
+Exclude 3 ACC outliers
 
-## Exclude participants who did not pay attention in training
+## Training QC
 ### Compare points_total during training to identify outliers
 ``` {r}
 summary_training <- fulldata %>% 
@@ -335,43 +336,41 @@ training_outliers <- summary_training %>%
 excludeSubjs <- rbind(excludeSubjs, training_outliers)
 excludeSubjs <- unique(excludeSubjs)
 ```
-Exclude 10 people with poor training, ie below 500 points
+
 ## task choice data cleaning
 ```{r summary of task choice, warning=FALSE}
 summary_task_choice <- fulldata %>%
+  filter(!condition == "training") %>% 
   group_by(participant, task) %>% 
-  summarise(n = n(), .groups = "keep") %>% 
-  summarise(lettProp = sum(n[task=="letter"])/sum(n), .groups = "keep")
+  summarise(n = n(), .groups = "drop_last") %>% 
+  summarise(lettProp = sum(n[task=="letter"])/sum(n))
 summary(summary_task_choice)
 ```
 ```{r plot task choice histogram}
 summary_task_choice %>% 
   ggplot(aes(x=lettProp)) + 
-  geom_histogram(binwidth=.03) + 
+  geom_histogram(bins=10) + 
   geom_vline(aes(xintercept=median(lettProp)), color="blue", linetype="dashed", size=1) + 
   scale_x_continuous(name="Letter Task Choice Proportion", breaks = seq(0, 1, .1)) +
   scale_y_continuous(name = "Count", breaks = seq(0,30,5))
 ```
 All levels of platform and platform have similar distributions and medians for Task Choice
 ```{r Check for task choice outliers, warning=FALSE}
-task_outliers <- fulldata %>%
-  group_by(participant, task) %>% 
-  summarise(n = n(), .groups = "drop_last") %>% 
-  summarise(lettProp = sum(n[task=="letter"])/sum(n), .groups = "keep") %>% 
+summary_task_choice %>% 
   identify_outliers(lettProp)
 
 # normal outlier detection doesn't work on these probability data because Q1-3*IQR is negative
 # calculate by hand using the same criteria to ID extreme outliers (3*IQR)
-Q1 = quantile(summary_task_choice$lettProp, probs = .25); Q3 = quantile(summary_task_choice$lettProp, probs = .75);
-IQR = Q3-Q1
-task_exclude <- summary_task_choice %>% 
-  filter( (lettProp < Q1-3*IQR) || (lettProp > Q3+3*IQR) ) %>% 
-  ungroup() %>% select(participant)
+#Q1 = quantile(summary_task_choice$lettProp, probs = .25); Q3 = quantile(summary_task_choice$lettProp, probs = .75);
+#IQR = Q3-Q1
+#task_exclude <- summary_task_choice %>% 
+#  filter( (lettProp < Q1-3*IQR) || (lettProp > Q3+3*IQR) ) %>% 
+#  ungroup() %>% select(participant)
 
-excludeSubjs <- rbind(excludeSubjs,task_exclude)
-excludeSubjs <- unique(excludeSubjs)
+#excludeSubjs <- rbind(excludeSubjs,task_exclude)
+#excludeSubjs <- unique(excludeSubjs)
 ```
-16 excluded
+
 ## VSR data cleaning
 ```{r Summarise switch rate, warning=FALSE}
 summary_VSR <- fulldata %>% 
@@ -384,18 +383,14 @@ summary(summary_VSR)
 ``` {r Plot VSR distribution}
 summary_VSR %>% 
   ggplot(aes(x=VSR)) + 
-  geom_histogram(binwidth=.05) +
+  geom_histogram(bins=10) +
   geom_vline(aes(xintercept=median(VSR)), color="blue", linetype="dashed", size=1) +
   scale_x_continuous(name="Voluntary Switch Rate", breaks = seq(0.0, 1.0, .1)) +
   scale_y_continuous(name = "Count", breaks = seq(0,30,5))
 ```
 All levels of platform and platform have similar distributions and medians for VSR
 ``` {r Check for VSR Outliers}
-VSR_outliers <- fulldata %>% 
-  group_by(participant, alt) %>%
-  summarise(n = n(), .groups = "drop_last") %>%
-  summarise(VSR = n[alt=="switch"]/sum(n), count=sum(n), .groups = "keep") %>% 
-  filter(!is.na(VSR)) %>% 
+summary_VSR %>% 
   identify_outliers(VSR)
 
 # normal outlier detection doesn't work on these probability data because Q1-3*IQR is negative
