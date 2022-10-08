@@ -7,3 +7,4 @@ data/
 data_parsed/
 renv.lock
 renv/
+.DS_Store

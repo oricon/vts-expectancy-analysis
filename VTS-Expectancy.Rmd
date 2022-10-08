@@ -88,6 +88,7 @@ fulldata <- unite(fulldata, RT, c(training_resp.rt, target_resp.rt), na.rm = TRU
 fulldata$RT <- as.numeric(fulldata$RT)
 fulldata$RT <- fulldata$RT * 1000 # convert from sec to ms  
 
+fulldata <- rename(fulldata, shape = curr_shape)
 fulldata <- fulldata %>% 
   mutate(condition = ifelse(acc == 0, "error", fulldata$condition))
 
@@ -100,6 +101,41 @@ fulldata <- fulldata %>%
                              rewCond == "Lo" ~ "Lo",
                              rewCond == "Hi" ~ "Hi",
                              rewCond == "noRew" ~ "noRew"))
+
+# For early participants the rewCond and rewExpect wasn't logged
+summary_recode <- fulldata %>% 
+  filter(points_trial > 0) %>% 
+  filter(!condition == "training") %>% 
+  group_by(participant, shape, points_trial) %>% 
+  summarise(n=n(), .groups = "drop_last") %>% 
+  summarise(lowProp = n[points_trial == 1]/sum(n), count=sum(n), .groups = "keep") %>% 
+  ungroup() %>% 
+  complete(participant, shape, fill = list(lowProp = 0, count = 0))
+
+# Sort by low high
+# The lowest and highest value for each subject should be high expectancy, 
+# the middle two values should be low expectancy
+rewCond_shape <- summary_recode %>% 
+  group_by(participant) %>% 
+  arrange(participant, lowProp) %>% 
+  mutate(rewExpectCond = row_number(participant)) %>% 
+  mutate(rewExpectCond_Label = case_when(rewExpectCond == 1 ~ "HE_HR",
+                                         rewExpectCond == 2 ~ "LE_HR",
+                                         rewExpectCond == 3 ~ "LE_LR",
+                                         rewExpectCond == 4 ~ "HE_LR"))
+
+fulldata <- fulldata %>% 
+  left_join(rewCond_shape, fulldata, by = c("participant", "shape"))
+
+# Next step:
+# Create new variables (LE_LR, LE_HR, HE_LR, HE_HR)
+# Based of the order of lowHigh within each participant
+# Mutate?
+reward_summary <- fulldata %>% 
+  filter(rewCond == "Hi" | rewCond == "Lo") %>% 
+  group_by(participant, rewCond, rewExpect, rewExpectCond_Label) %>% 
+  summarise(n=n())
+
 fulldata$rewCond <- as.factor(fulldata$rewCond)
 fulldata$rewCond <- relevel(fulldata$rewCond, "Hi")
 
@@ -253,7 +289,7 @@ for(i in 1:n_pages(p)){
          device = cairo_pdf, path = here("Rdata"))
 }
 ```
-
+Subjects to check: 12531, 57890, 293008, 293212, 294301, 294208, 294580, 297775
 
 ## RT data cleaning
 ```{r Summary stats for RT data, echo=TRUE}
@@ -271,13 +307,13 @@ summary(summary_RT)
 summary_RT %>% 
   ggplot(aes(x=meanRT)) + 
   facet_grid(rows = vars(platform)) +
-  geom_histogram(bins=7) +
+  geom_histogram(bins=10) +
   geom_vline(data = filter(summary_RT, platform=="inlab"),
              aes(xintercept=median(meanRT)), color="blue", linetype="dashed", size=1) +
   geom_vline(data = filter(summary_RT, platform=="online"),
              aes(xintercept=median(meanRT)), color="blue", linetype="dashed", size=1) +
   scale_x_continuous(name="Mean RT", breaks = seq(400,1500,200)) +
-  scale_y_continuous(name = "Count", breaks = seq(0,20,5))
+  scale_y_continuous(name = "Count", breaks = seq(0,50,5))
 ```
 All levels of platform and platform have similar distributions
 ``` {r Determine RT outliers, warning=FALSE, echo=TRUE}
@@ -290,7 +326,7 @@ RT_outliers <- fulldata %>%
 RT_exclude <- subset(RT_outliers,is.extreme=="TRUE") %>% select(participant)
 excludeSubjs <- RT_exclude
 ```
-0 excluded with 46 subjects total
+1 excluded with 88 subjects total
 ## ACC data cleaning
 ```{r Summarise Accuracy Data, warning=FALSE}
 summary_ACC <- fulldata %>% 
@@ -304,10 +340,10 @@ summary(summary_ACC)
 ``` {r Plot Accuracy Histogram}
 summary_ACC %>% 
   ggplot(aes(x=ACC)) + 
-  geom_histogram(bins=8) + 
+  geom_histogram(bins=10) + 
   geom_vline(aes(xintercept=median(ACC)), color="blue", linetype="dashed", size=1) +
   scale_x_continuous(name="Accuracy", breaks = seq(0, 1, .05)) +
-  scale_y_continuous(name = "Count", breaks = seq(0,30,5))
+  scale_y_continuous(name = "Count", breaks = seq(0,60,5))
 ```
 All levels of platform and platform have similar distributions for ACC
 ``` {r Check acc outliers}
@@ -320,7 +356,7 @@ ACC_exclude <- subset(ACC_outliers,is.extreme=="TRUE") %>% select(participant)
 excludeSubjs <- rbind(excludeSubjs,ACC_exclude)
 excludeSubjs <- unique(excludeSubjs)
 ```
-Exclude 3 ACC outliers
+Exclude 5 ACC outliers out of 146
 
 ## Training QC
 ### Compare points_total during training to identify outliers
@@ -330,11 +366,15 @@ summary_training <- fulldata %>%
   group_by(participant) %>% 
   summarise(points = sum(points_trial), sd = sd(points_trial))
 summary(summary_training)
-training_outliers <- summary_training %>% 
-  filter(points < 500) %>% 
-  select(participant)
-excludeSubjs <- rbind(excludeSubjs, training_outliers)
-excludeSubjs <- unique(excludeSubjs)
+
+summary_training %>% ggplot(aes(x=points)) + geom_histogram(bins=10)
+# training_outliers <- summary_training %>%
+#   identify_outliers(points)
+#   
+#   filter(points < 500) %>%
+#   select(participant)
+# excludeSubjs <- rbind(excludeSubjs, training_outliers)
+# excludeSubjs <- unique(excludeSubjs)
 ```
 
 ## task choice data cleaning
@@ -352,25 +392,17 @@ summary_task_choice %>%
   geom_histogram(bins=10) + 
   geom_vline(aes(xintercept=median(lettProp)), color="blue", linetype="dashed", size=1) + 
   scale_x_continuous(name="Letter Task Choice Proportion", breaks = seq(0, 1, .1)) +
-  scale_y_continuous(name = "Count", breaks = seq(0,30,5))
+  scale_y_continuous(name = "Count", breaks = seq(0,100,10))
 ```
 All levels of platform and platform have similar distributions and medians for Task Choice
 ```{r Check for task choice outliers, warning=FALSE}
-summary_task_choice %>% 
+task_outliers <- summary_task_choice %>% 
   identify_outliers(lettProp)
-
-# normal outlier detection doesn't work on these probability data because Q1-3*IQR is negative
-# calculate by hand using the same criteria to ID extreme outliers (3*IQR)
-#Q1 = quantile(summary_task_choice$lettProp, probs = .25); Q3 = quantile(summary_task_choice$lettProp, probs = .75);
-#IQR = Q3-Q1
-#task_exclude <- summary_task_choice %>% 
-#  filter( (lettProp < Q1-3*IQR) || (lettProp > Q3+3*IQR) ) %>% 
-#  ungroup() %>% select(participant)
-
-#excludeSubjs <- rbind(excludeSubjs,task_exclude)
-#excludeSubjs <- unique(excludeSubjs)
+task_exclude <- subset(task_outliers,is.extreme=="TRUE") %>% select(participant)
+excludeSubjs <- rbind(excludeSubjs,task_exclude)
+excludeSubjs <- unique(excludeSubjs)
 ```
-
+5 outliers out of 146
 ## VSR data cleaning
 ```{r Summarise switch rate, warning=FALSE}
 summary_VSR <- fulldata %>% 
@@ -386,7 +418,7 @@ summary_VSR %>%
   geom_histogram(bins=10) +
   geom_vline(aes(xintercept=median(VSR)), color="blue", linetype="dashed", size=1) +
   scale_x_continuous(name="Voluntary Switch Rate", breaks = seq(0.0, 1.0, .1)) +
-  scale_y_continuous(name = "Count", breaks = seq(0,30,5))
+  scale_y_continuous(name = "Count", breaks = seq(0,50,5))
 ```
 All levels of platform and platform have similar distributions and medians for VSR
 ``` {r Check for VSR Outliers}
@@ -408,32 +440,30 @@ excludeSubjs <- unique(excludeSubjs)
 ``` {r Remove outliers from data, warning=FALSE, echo=FALSE}
 cleandata <- fulldata %>% 
   filter(! participant %in% excludeSubjs$participant) %>% 
-  filter(!condition == "training") %>%
-  filter(!rewCond == "NoRew")
+  filter(!condition == "training")
 
-participant_demos <- participant_demos %>% 
-  filter(ID %in% cleandata$participant) %>% 
-  rename(participant = ID) %>% 
-  filter(!is.na("BAS_Drive"))
-participant_demos$participant <- as.factor(participant_demos$participant)
-
-cleandata.w.demos <- cleandata %>% group_by(participant) %>% filter(participant %in% participant_demos$participant)
-
-cleandata.w.demos <- left_join(cleandata.w.demos, participant_demos, by=c("participant"))
+# participant_demos <- participant_demos %>% 
+#   filter(ID %in% cleandata$participant) %>% 
+#   rename(participant = ID) %>% 
+#   filter(!is.na("BAS_Drive"))
+# participant_demos$participant <- as.factor(participant_demos$participant)
+# 
+# cleandata.w.demos <- cleandata %>% group_by(participant) %>% filter(participant %in% participant_demos$participant)
+# 
+# cleandata.w.demos <- left_join(cleandata.w.demos, participant_demos, by=c("participant"))
 
 cleanRTdata <- filter(cleandata, RT>200 & acc==1, E1==0)
 cleanACCdata <- filter(cleandata, RT>200)
 cleanChoicedata <- filter(cleandata, RT>200)
 
-cleanRTdata.w.demos <- filter(cleandata.w.demos, RT>200 & acc==1, E1==0)
-cleanACCdata.w.demos <- filter(cleandata.w.demos, RT>200)
-cleanChoicedata.w.demos <- filter(cleandata.w.demos, RT>200)
+# cleanRTdata.w.demos <- filter(cleandata.w.demos, RT>200 & acc==1, E1==0)
+# cleanACCdata.w.demos <- filter(cleandata.w.demos, RT>200)
+# cleanChoicedata.w.demos <- filter(cleandata.w.demos, RT>200)
   
-included_subjs <- cleandata.w.demos %>% group_by(participant) %>% summarise(n=n()) %>% select(participant)
+# included_subjs <- cleandata.w.demos %>% group_by(participant) %>% summarise(n=n()) %>% select(participant)
 ```
-Missing survey data from 4 participants due to sona->qualtrics issues. 
 # RT Analyses
-```{r GLMM - RT by current and previous reward probabilistic w/ BISBAS}
+```{r GLMM - RT by current and previous reward}
 # In order to compare between platforms, only use Hi, HiSlow, and Low prev reward from probabilistic
 RTdata <- cleanRTdata %>% 
   filter(prevRew == "hi" | prevRew == "hiSlow" | prevRew == "lo") %>% 
@@ -552,23 +582,21 @@ emm_acc <- emmeans(acc_m5j, specs = "prevRew")
 pairs(emm_acc, by=NULL) %>% summary(infer = TRUE)
 ```
 
-# VSR by current and previous reward GLMM
+# VSR by reward expectancy
 ```{r GLMM - VSR by current and previous reward}
 # In order to compare between platforms and version, only use Hi, HiSlow, and Low prev reward from probabilistic
-cleanChoicedata_rew <- cleanChoicedata %>% 
-  filter(prevRew == "hi" | prevRew == "hiSlow" | prevRew == "lo") %>% 
-  filter(!is.na("alt")) %>% 
+cleanChoicedata <- cleanChoicedata %>% 
+  filter(!is.na(rewExpect)) %>% 
+  filter(!rewExpect == "") %>% 
+  filter(rewCond == "Lo" | rewCond == "Hi") %>% 
+  filter(!is.na(alt)) %>% 
   droplevels()
 # Set contrasts
-# PrevRew - Compare all to Low
-contrasts(cleanChoicedata_rew$alt) <- contr.sum(2)
-contrasts(cleanChoicedata_rew$rewCond) <- contr.sum(2)
-contrasts(cleanChoicedata_rew$prevRew) <- contr.sum(3)
-contrasts(cleanChoicedata_rew$version) <- contr.sum(2)
-contrasts(cleanChoicedata_rew$platform) <- contr.sum(2)
-write_rds(cleanChoicedata_rew, file = here('Rdata','VTS_choiceData_rew.Rda'))
+cleanChoicedata$alt <- as.factor(cleanChoicedata$alt)
+cleanChoicedata$rewExpect <- as.factor(cleanChoicedata$rewExpect)
+contrasts(cleanChoicedata$alt) <- contr.sum(2)
+contrasts(cleanChoicedata$rewExpect) <- contr.sum(2)
 ```
-Due to prolonged runtime for complex RE structures the models were run with julia
 ### Summarise data
 ```{r Summary VSR by Prev and Curr Reward}
 summary_VSR_Rew <- cleanChoicedata_rew %>% 
@@ -601,6 +629,15 @@ for (i in 1:3) {
 }
 ```
 All OR close to 1, so conclude no influence of version or platform on prev rew prop
+
+
+```{r}
+m1 <- mixed(formula = alt ~ prevRew * rewExpect + (1 | participant), data = cleanChoicedata, 
+            family = binomial(), check_contrasts = TRUE, all_fit = TRUE, 
+            method = "LRT")
+summary(m1)
+```
+
 
 ### Load julia models
 ``` {r VSR Prev Curr Reward Julia Best Fit}
