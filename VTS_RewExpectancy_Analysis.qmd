@@ -261,7 +261,6 @@ for(i in 1:n_pages(p)){
          device = cairo_pdf, path = here("Rdata"))
 }
 ```
-Subjects to check: 12531, 57890, 293008, 293212, 294301, 294208, 294580, 297775, 295192, 
 
 ## RT data cleaning
 ```{r Summary stats for RT data, echo=TRUE}
@@ -298,7 +297,7 @@ RT_exclude <- subset(RT_outliers,is.extreme=="TRUE") %>% select(participant)
 excludeSubjs <- rbind(excludeSubjs,RT_exclude)
 excludeSubjs <- unique(excludeSubjs)
 ```
-1 excluded with 88 subjects total
+1 excluded with 184 subjects total
 ## ACC data cleaning`
 ```{r Summarise Accuracy Data, warning=FALSE}
 summary_ACC <- fulldata %>% 
@@ -327,7 +326,7 @@ ACC_exclude <- subset(ACC_outliers,is.extreme=="TRUE") %>% select(participant)
 excludeSubjs <- rbind(excludeSubjs,ACC_exclude)
 excludeSubjs <- unique(excludeSubjs)
 ```
-Exclude 5 ACC outliers out of 146
+Exclude 6 ACC outliers out of 184
 
 ## Training QC
 ### Compare points_total during training to identify outliers
@@ -373,7 +372,7 @@ task_exclude <- subset(task_outliers,is.extreme=="TRUE") %>% select(participant)
 excludeSubjs <- rbind(excludeSubjs,task_exclude)
 excludeSubjs <- unique(excludeSubjs)
 ```
-5 outliers out of 146
+7 outliers out of 184
 ## VSR data cleaning
 ```{r Summarise switch rate, warning=FALSE}
 summary_VSR <- fulldata %>% 
@@ -444,6 +443,15 @@ cleanChoicedata <- filter(cleandata, RT>200)
 <!-- notebook() -->
 <!-- ``` -->
 
+```{r}
+summary_corrRT <- cleanRTdata %>% 
+  group_by(participant, blockNum) %>% 
+  summarise(meanRT = mean(RT, na.rm = TRUE), .groups="keep")
+ggplot(data = summary_corrRT, aes(x=blockNum, y=meanRT)) + geom_line(stat = "summary_bin", fun = median) +
+  scale_y_continuous(breaks = seq(550,700,25)) + theme_minimal()
+```
+
+
 ```{r GLMM - RT}
 # Set contrasts
 contrasts(cleanRTdata$alt) <- contr.sum(2)
@@ -485,6 +493,13 @@ summaryACCstats %>%  ggplot(aes(x = interaction(rewExpect,rewCond), y = ACC)) +
   stat_summary(color = "red", fun = mean) +
   facet_row("rewExpect") + facet_col("platform") + theme_ggeffects()
 ```
+``` {r} 
+summary_corrACC <- cleanACCdata %>% 
+  group_by(participant, blockNum) %>% 
+  summarise(ACC = mean(acc, na.rm = TRUE), .groups="keep")
+ggplot(data = summary_corrACC, aes(x=blockNum, y=ACC)) + geom_line(stat = "summary_bin", fun = median) +
+  ylim(.8,1)
+```
 
 ```{r model acc effects}
 acc_m1 <- mixed(formula = ACC ~ rewExpect*rewCond*platform + (1|participant), 
@@ -495,10 +510,54 @@ afex_plot(acc_m1, x = "rewCond")
 # VSR by reward expectancy
 ```{r GLMM - VSR by current and previous reward and rewExpect}
 # Set contrasts
-contrasts(cleanChoicedata$alt) <- contr.sum(2)
-contrasts(cleanChoicedata$rewExpect) <- contr.sum(2)
-contrasts(cleanChoicedata$prevRew) <- contr.sum(6)
-contrasts(cleanChoicedata$rewCond) <- contr.sum(2)
+cleanChoicedata_restricted <- cleanChoicedata %>% 
+  filter(prevRew == "Hi" | prevRew == "Lo") %>% 
+  droplevels()
+
+contrasts(cleanChoicedata_restricted$alt) <- contr.sum(2)
+contrasts(cleanChoicedata_restricted$rewExpect) <- contr.sum(2)
+contrasts(cleanChoicedata_restricted$prevRew) <- contr.sum(2)
+contrasts(cleanChoicedata_restricted$rewCond) <- contr.sum(2)
+```
+### Summarise data
+```{r Summary VSR by Prev and Curr Reward}
+summary_VSR_Rew <- cleanChoicedata_restricted %>% 
+  group_by(participant, platform, prevRew, rewExpect, rewCond, alt) %>% 
+  filter(!is.na(alt)) %>% 
+  summarise(n = n(), .groups = "drop_last") %>%
+  ungroup() %>% 
+  complete(nesting(participant, platform, rewExpect), prevRew, rewCond, alt, fill = list(n = 0)) %>% 
+  group_by(participant, platform, rewExpect, prevRew, rewCond) %>%
+  summarise(VSR = n[alt=="switch"]/sum(n), count=sum(n), .groups = "keep")
+
+summary_VSR_Rew %>% ungroup() %>% 
+  ggplot(aes(x = interaction(rewExpect,rewCond), y = VSR)) +
+  ggbeeswarm::geom_quasirandom(alpha = 0.3) +
+  geom_boxplot(fill = "transparent") +
+  theme_ggeffects()
+```
+```{r}
+switch_m1 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
+switch_m2 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew+rewCond+rewExpect | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
+switch_m3 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew+rewCond+rewExpect || participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
+switch_m4 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew*rewCond*rewExpect | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
+switch_m5 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew*rewCond*rewExpect || participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
+switch_m6 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + (prevRew+rewCond+rewExpect)^2 | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
+summary(switch_m1)
+```
+```{r}
+afex_plot(switch_m1, x = "prevRew", trace = "rewCond", data_plot = F)
+afex_plot(switch_m1, x = "prevRew", trace = "rewCond", panel = "rewExpect", data_plot = F)
+```
+```{r GLMM - VSR by current and previous reward and rewExpect}
+# Set contrasts
+cleanChoicedata_noErr <- cleanChoicedata %>% 
+  filter(!prevRew == "error") %>% 
+  droplevels()
+contrasts(cleanChoicedata_noErr$alt) <- contr.sum(2)
+contrasts(cleanChoicedata_noErr$rewExpect) <- contr.sum(2)
+contrasts(cleanChoicedata_noErr$prevRew) <- contr.sum(5)
+contrasts(cleanChoicedata_noErr$rewCond) <- contr.sum(2)
 ```
 ### Summarise data
 ```{r Summary VSR by Prev and Curr Reward}
@@ -518,69 +577,17 @@ summary_VSR_Rew %>% ungroup() %>%
   theme_ggeffects()
 ```
 ```{r}
-switch_m1 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 | participant), data = cleanChoicedata, 
-            family = binomial(), check_contrasts = TRUE, method = "LRT")
-summary(switch_m1)
+switch_m1_full <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 | participant), data = cleanChoicedata_noErr, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
+switch_m2 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew+rewCond+rewExpect | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
+switch_m3 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew+rewCond+rewExpect || participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
+switch_m4 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew*rewCond*rewExpect | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
+switch_m5 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew*rewCond*rewExpect || participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
+switch_m6 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + (prevRew+rewCond+rewExpect)^2 | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
+summary(switch_m1_full)
+```
+```{r}
+afex_plot(switch_m1_full, x = "prevRew", trace = "rewCond", data_plot = F)
+afex_plot(switch_m1, x = "prevRew", trace = "rewCond", panel = "rewExpect", data_plot = F)
 ```
 
 
-### Load julia models
-``` {r VSR Prev Curr Reward Julia Best Fit}
-rew_m6_choice <- readRDS(here('Rdata','vsr_rew_m6j.Rds'))
-summary(rew_m6_choice)
-tab_model(rew_m6_choice, show.icc = F, show.re.var = F, show.obs = F, dv.labels = "", wrap.labels = 50, show.ngroups = F, digits = 4)
-```
-Model 6 is the best fit - uncorrelated additive RE
-```{r Check model assumptions}
-res.m6 <- residuals(rew_m6_choice)
-qqnorm(res.m6,)
-```
-#### Explore predictions for julia m6 model
-```{r Plot 4-way interaction, message=FALSE}
-emm_options(lmer.df = "asymptotic")
-theme_set(theme_sjplot2(base_size = 15, base_family = "Arial") +
-theme(legend.position = "top"))
-plot_model(rew_m6_choice, type = "emm", terms = c("prevRew", "rewCond","version","platform[inlab]"), axis.title = c("Previous Reward Outcome","Probability of Switch"), title = "", legend.title = "Current Reward", axis.lim = c(.15,.45))
-ggsave("SR_4way_inlab_plot.pdf", device = cairo_pdf, path = here("Rdata"))
-plot_model(rew_m6_choice, type = "emm", terms = c("prevRew", "rewCond","version","platform[online]"), axis.title = c("Previous Reward Outcome","Probability of Switch"), title = "", legend.title = "Current Reward", axis.lim = c(.15,.45))
-ggsave("SR_4way_online_plot.pdf", device = cairo_pdf, path = here("Rdata"))
-```
-```{r sr emmeans 1 - prevRew rewCond version platform}
-emm_sr1 <- emmeans(rew_m6_choice, specs = pairwise ~ prevRew:rewCond, by = c("version","platform"))
-emm_sr1_summ <- emm_sr1$contrasts %>% summary(infer = T)
-xtable(emm_sr1_summ)
-```
-
-```{r EMM table for interaction of previous & current reward by version}
-emm1 <- emmeans(rew_m4_choice, specs = c("prevRew","rewCond","version"), type = "response")
-custom <- list("HH-LL" = c(-1, 0, 0, 0, 1, 0, -1, 0, 0, 0, 1, 0),
-               "HH-Inc" = c(0, 0, 0, -1, 1, 0, 0, 0, 0, -1, 1, 0),
-               "HH-Dec" = c(0, -1, 0, 0, 1, 0, 0, -1, 0, 0, 1, 0), 
-               "HH-sH" = c(0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 1, -1),
-               "HH-sL" = c(0, 0, -1, 0, 1, 0, 0, 0, -1, 0, 1, 0),
-               "HH-LL-V" = c(-1, 0, 0, 0, 1, 0, 1, 0, 0, 0, -1, 0),
-               "HH-Inc-V" = c(0, 0, 0, -1, 1, 0, 0, 0, 0, 1, -1, 0),
-               "HH-Dec-V" = c(0, -1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0),
-               "HH-sH-V" = c(0, 0, 0, 0, 1, -1, 0, 0, 0, 0, -1, 1),
-               "HH-sL-V" = c(0, 0, -1, 0, 1, 0, 0, 0, 1, 0, -1, 0))
-contrast(regrid(emm1), method = custom, type = "response", adjust = "holm")
-```
-```{r Plot 3-way interaction prev curr rew by version, message=FALSE}
-plot_model(rew_m4_choice, type = "pred", terms = c("prevRew", "rewCond","version"), legend.title = "Reward Prospect", 
-           axis.title = c("Previous Reward", "Switch Probability"), colors = "Dark2", title = "")
-ggsave("3way_int_plot.pdf", device = cairo_pdf, path = here("Rdata"))
-```
-
-```{r vsr rew emmeans 1 - prevRew by rewCond by version}
-emm_rew1 <- emmeans(rew_m4_choice, specs = c("prevRew","rewCond", by = c("version")))
-pairs(emm_rew1, by=NULL) %>% summary(infer = TRUE)
-plot_model(rew_m4_choice, type = "emm", terms = c("prevRew","rewCond","version"))
-```
-```{r vsr rew emmeans 2 - prewRew by rewCond by platform}
-emm_rew1 <- emmeans(rew_m4_choice, specs = c("prevRew","rewCond", by = c("platform")))
-pairs(emm_rew1, by=NULL) %>% summary(infer = TRUE)
-plot_model(rew_m4_choice, type = "emm", terms = c("prevRew","rewCond","platform"))
-```
-```{r ANOVA-like table for rew_m3}
-joint_tests(rew_m4_choice)
-```
