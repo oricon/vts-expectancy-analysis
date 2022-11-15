@@ -24,11 +24,14 @@ library(RColorBrewer)
 library(xtable)
 library(redcapAPI)
 ```
+
 ```{r Setup path, include=FALSE}
 workdir=here()
 knitr::opts_knit$set(root.dir = workdir)
 ```
+
 # Read in data
+
 ```{r Read in raw data, include=FALSE}
 filelist<- Sys.glob(file.path(workdir,"data","*","*vts_reward_expectancy_*.csv"))
 fulldata <- data.frame()
@@ -76,7 +79,9 @@ for (file in filelist) {
   fulldata <- rbind.data.frame(fulldata,data)
 }
 ```
+
 ## Recode variable and determine missing rewCond for early subjects
+
 ```{r Recode variables}
 fulldata <- fulldata %>% 
   mutate(rewCond = ifelse(condition == "training", NA,fulldata$rewCond))
@@ -143,25 +148,26 @@ fulldata <- fulldata %>% filter(!is.na(trialNum))
 fulldata$prevRew=NA
 fulldata <- fulldata %>% 
   mutate(prevRew = case_when(E1 == 1 ~ "error",
-                             trialNum>0 & E1==0 & lag(rewCond)=="Lo" & lag(points_trial)==1  ~ "Lo",
-                             trialNum>0 & E1==0 & lag(rewCond)=="Lo" & lag(points_trial)==10 ~ "Lo+",
-                             trialNum>0 & E1==0 & lag(rewCond)=="Hi" & lag(points_trial)==10 ~ "Hi",
-                             trialNum>0 & E1==0 & lag(rewCond)=="Hi" & lag(points_trial)==1  ~ "Hi-",
-                             trialNum>0 & E1==0 & lag(rewCond)=="Hi" & lag(points_trial)==0  ~ "HiSlow"))
+                             trialNum>0 & E1==0 & lag(rewCond)=="Lo" & lag(points_trial)==1  ~ "lo",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Lo" & lag(points_trial)==10 ~ "lo+",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Hi" & lag(points_trial)==10 ~ "hi",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Hi" & lag(points_trial)==1  ~ "hi-",
+                             trialNum>0 & E1==0 & lag(rewCond)=="Hi" & lag(points_trial)==0  ~ "hiSlow"))
 fulldata <- relocate(fulldata, prevRew, .before = rewCond)
 fulldata$prevRew <- as.factor(fulldata$prevRew)
 # Make high first
-fulldata$prevRew <- relevel(fulldata$prevRew, "Hi")
+fulldata$prevRew <- relevel(fulldata$prevRew, "hi")
 
 # Recode as factors
 fulldata$alt <- as.factor(fulldata$alt)
-fulldata$alt <- relevel(fulldata$alt, "switch")
+fulldata$alt <- relevel(fulldata$alt, "repeat")
 fulldata$platform <- as.factor(fulldata$platform)
 fulldata$platform <- relevel(fulldata$platform, "inlab")
 init_subs <- fulldata %>% group_by(participant) %>% tally()
 ```
 
 # Read data from REDcap surveys
+
 ```{r Read survey data, eval=FALSE, include=FALSE}
 JOE_TOKEN = "8092328E3AA4D7901F5341ADA9DD1177"
 URL = "https://redcap.tamhsc.edu/api/"
@@ -246,6 +252,7 @@ summary(participant_demos)
 ```
 
 # Data cleaning
+
 ```{r}
 n_pages <- ceiling(nrow(init_subs)/15)
 p <- fulldata %>% 
@@ -263,6 +270,7 @@ for(i in 1:n_pages(p)){
 ```
 
 ## RT data cleaning
+
 ```{r Summary stats for RT data, echo=TRUE}
 summary_RT <- fulldata %>% 
   filter(!condition == "training") %>% 
@@ -273,6 +281,7 @@ summary_RT <- fulldata %>%
             count = sum(!is.na(RT)), .groups = "keep")
 summary(summary_RT)
 ```
+
 ```{r Plot RT Histogram, echo=TRUE}
 summary_RT %>% 
   ggplot(aes(x=meanRT)) + 
@@ -285,8 +294,10 @@ summary_RT %>%
   scale_x_continuous(name="Mean RT", breaks = seq(400,1800,200)) +
   scale_y_continuous(name = "Count", breaks = seq(0,40,5))
 ```
+
 All levels of platform and platform have similar distributions
-``` {r Determine RT outliers, warning=FALSE, echo=TRUE}
+
+```{r Determine RT outliers, warning=FALSE, echo=TRUE}
 RT_outliers <- fulldata %>% 
   filter(!condition == "training") %>% 
   group_by(participant) %>%
@@ -294,11 +305,12 @@ RT_outliers <- fulldata %>%
   summarise(meanRT = mean(RT, na.rm = TRUE)) %>% 
   identify_outliers(meanRT)
 RT_exclude <- subset(RT_outliers,is.extreme=="TRUE") %>% select(participant)
-excludeSubjs <- rbind(excludeSubjs,RT_exclude)
+excludeSubjs <- RT_exclude
 excludeSubjs <- unique(excludeSubjs)
 ```
-1 excluded with 184 subjects total
-## ACC data cleaning`
+
+1 excluded with 184 subjects total \## ACC data cleaning\`
+
 ```{r Summarise Accuracy Data, warning=FALSE}
 summary_ACC <- fulldata %>% 
   filter(!condition == "training") %>% 
@@ -307,7 +319,8 @@ summary_ACC <- fulldata %>%
             count=sum(!is.na(RT)), .groups = "keep")
 summary(summary_ACC)
 ```
-``` {r Plot Accuracy Histogram}
+
+```{r Plot Accuracy Histogram}
 summary_ACC %>% 
   ggplot(aes(x=ACC)) + 
   geom_histogram(bins=10) + 
@@ -315,8 +328,10 @@ summary_ACC %>%
   scale_x_continuous(name="Accuracy", breaks = seq(0, 1, .05)) +
   scale_y_continuous(name = "Count", breaks = seq(0,60,5))
 ```
+
 All levels of platform and platform have similar distributions for ACC
-``` {r Check acc outliers}
+
+```{r Check acc outliers}
 ACC_outliers <- fulldata %>% 
   filter(!condition == "training") %>% 
   group_by(participant) %>% 
@@ -326,11 +341,14 @@ ACC_exclude <- subset(ACC_outliers,is.extreme=="TRUE") %>% select(participant)
 excludeSubjs <- rbind(excludeSubjs,ACC_exclude)
 excludeSubjs <- unique(excludeSubjs)
 ```
-Exclude 6 ACC outliers out of 184
+
+Exclude 8 ACC outliers out of 189
 
 ## Training QC
+
 ### Compare points_total during training to identify outliers
-``` {r}
+
+```{r}
 summary_training <- fulldata %>% 
   filter(condition == "training") %>% 
   group_by(participant) %>% 
@@ -348,6 +366,7 @@ summary_training %>% ggplot(aes(x=points)) + geom_histogram(bins=10)
 ```
 
 ## task choice data cleaning
+
 ```{r summary of task choice, warning=FALSE}
 summary_task_choice <- fulldata %>%
   filter(!condition == "training") %>% 
@@ -356,6 +375,7 @@ summary_task_choice <- fulldata %>%
   summarise(lettProp = sum(n[task=="letter"])/sum(n))
 summary(summary_task_choice)
 ```
+
 ```{r plot task choice histogram}
 summary_task_choice %>% 
   ggplot(aes(x=lettProp)) + 
@@ -364,7 +384,9 @@ summary_task_choice %>%
   scale_x_continuous(name="Letter Task Choice Proportion", breaks = seq(0, 1, .1)) +
   scale_y_continuous(name = "Count", breaks = seq(0,100,10))
 ```
+
 All levels of platform and platform have similar distributions and medians for Task Choice
+
 ```{r Check for task choice outliers, warning=FALSE}
 task_outliers <- summary_task_choice %>% 
   identify_outliers(lettProp)
@@ -372,8 +394,9 @@ task_exclude <- subset(task_outliers,is.extreme=="TRUE") %>% select(participant)
 excludeSubjs <- rbind(excludeSubjs,task_exclude)
 excludeSubjs <- unique(excludeSubjs)
 ```
-7 outliers out of 184
-## VSR data cleaning
+
+7 outliers out of 189 \## VSR data cleaning
+
 ```{r Summarise switch rate, warning=FALSE}
 summary_VSR <- fulldata %>% 
   group_by(participant, alt) %>%
@@ -382,7 +405,8 @@ summary_VSR <- fulldata %>%
   filter(!is.na(VSR))
 summary(summary_VSR)
 ```
-``` {r Plot VSR distribution}
+
+```{r Plot VSR distribution}
 summary_VSR %>% 
   ggplot(aes(x=VSR)) + 
   geom_histogram(bins=10) +
@@ -390,8 +414,10 @@ summary_VSR %>%
   scale_x_continuous(name="Voluntary Switch Rate", breaks = seq(0.0, 1.0, .1)) +
   scale_y_continuous(name = "Count", breaks = seq(0,50,5))
 ```
+
 All levels of platform and platform have similar distributions and medians for VSR
-``` {r Check for VSR Outliers}
+
+```{r Check for VSR Outliers}
 summary_VSR %>% 
   identify_outliers(VSR)
 
@@ -405,13 +431,16 @@ VSR_exclude <- summary_VSR %>%
 excludeSubjs <- rbind(excludeSubjs,VSR_exclude)
 excludeSubjs <- unique(excludeSubjs)
 ```
-0 VSR outliers, range is too large so Q1-3*IQR is negative
-## Remove outliers from data to enter into analysis
-``` {r Remove outliers from data, warning=FALSE, echo=FALSE}
+
+0 VSR outliers, range is too large so Q1-3\*IQR is negative \## Remove outliers from data to enter into analysis \## Remove outliers
+
+```{r Remove outliers from data, warning=FALSE, echo=FALSE}
 cleandata <- fulldata %>% 
   filter(! participant %in% excludeSubjs$participant) %>% 
   filter(!condition == "training") %>% 
   filter(!rewCond == "noRew") %>% 
+  filter(RT > 200 & RT < 3000) %>% 
+  filter(!(participant == 294301 & blockNum == 4)) %>% 
   droplevels()
 
 
@@ -424,33 +453,35 @@ cleandata <- fulldata %>%
 # cleandata.w.demos <- cleandata %>% group_by(participant) %>% filter(participant %in% participant_demos$participant)
 # 
 # cleandata.w.demos <- left_join(cleandata.w.demos, participant_demos, by=c("participant"))
-
-cleanRTdata <- filter(cleandata, RT>200 & acc==1, E1==0)
-cleanACCdata <- filter(cleandata, RT>200)
-cleanChoicedata <- filter(cleandata, RT>200)
-
-# cleanRTdata.w.demos <- filter(cleandata.w.demos, RT>200 & acc==1, E1==0)
-# cleanACCdata.w.demos <- filter(cleandata.w.demos, RT>200)
-# cleanChoicedata.w.demos <- filter(cleandata.w.demos, RT>200)
   
 # included_subjs <- cleandata.w.demos %>% group_by(participant) %>% summarise(n=n()) %>% select(participant)
 ```
-#RT Analyses
-<!-- ```{julia} -->
-<!-- using Pkg -->
-<!-- Pkg.add("IJulia") -->
-<!-- using IJulia -->
-<!-- notebook() -->
-<!-- ``` -->
 
-```{r}
-summary_corrRT <- cleanRTdata %>% 
+#RT Analyses \## RT by block
+
+```{r Plot RT by block}
+summary_corrRT <- cleandata %>% 
+  filter(acc == 1 & E1 == 0) %>% 
+  filter(!(blockNum == 0 & trialNum < 32)) %>% 
   group_by(participant, blockNum) %>% 
   summarise(meanRT = mean(RT, na.rm = TRUE), .groups="keep")
-ggplot(data = summary_corrRT, aes(x=blockNum, y=meanRT)) + geom_line(stat = "summary_bin", fun = median) +
-  scale_y_continuous(breaks = seq(550,700,25)) + theme_minimal()
+
+ggplot(data = summary_corrRT, aes(x=factor(blockNum), y=meanRT, fill=factor(blockNum))) +
+  geom_violin(aes(fill=factor(blockNum)), show.legend = FALSE, alpha = .8) +
+  geom_boxplot(color="Dark Gray", alpha=.4, width=.3, position = position_dodge(.8), show.legend = FALSE) +
+  theme_classic2() + scale_y_continuous(breaks = seq(200,1500,250)) +
+  xlab(label = "Block Number") + ylab(label = "Mean RT") +
+  scale_fill_manual(values = c("#FDE725FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF"))
+ggsave(filename = "RT_block.pdf", device = cairo_pdf, path = here("Rdata"))
 ```
 
+```{r}
+cleanRTdata <- cleandata %>% 
+  filter(acc == 1 & E1 == 0)
+summary_cleanRT <- cleanRTdata %>% 
+  group_by(participant, alt, rewExpect) %>% 
+  tally()
+```
 
 ```{r GLMM - RT}
 # Set contrasts
@@ -483,6 +514,25 @@ summary(rt_m2)
 ```
 
 # Accuracy analysis
+
+## ACC by block
+
+```{r Plot RT by block}
+summary_ACCblock <- cleanACCdata %>% 
+  filter(!(blockNum == 0 & trialNum < 32)) %>% 
+  group_by(participant, blockNum) %>% 
+  summarise(meanACC = mean(acc, na.rm = TRUE), .groups="keep") %>% 
+  filter(meanACC>.6)
+
+ggplot(data = summary_ACCblock, aes(x=factor(blockNum), y=meanACC, fill=factor(blockNum))) +
+  geom_violin(aes(fill=factor(blockNum)), show.legend = FALSE, alpha = .8) +
+  geom_boxplot(color="Dark Gray", alpha=.4, width=.3, position = position_dodge(.8), show.legend = FALSE) +
+  theme_classic2() + 
+  xlab(label = "Block Number") + ylab(label = "Mean ACC") +
+  scale_fill_manual(values = c("#FDE725FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF"))
+ggsave(filename = "ACC_block.pdf", device = cairo_pdf, path = here("Rdata"))
+```
+
 ```{r Setup data for ACC glmm}
 summaryACCstats <- cleanACCdata %>% 
   group_by(participant, rewExpect, rewCond, platform) %>% 
@@ -493,21 +543,18 @@ summaryACCstats %>%  ggplot(aes(x = interaction(rewExpect,rewCond), y = ACC)) +
   stat_summary(color = "red", fun = mean) +
   facet_row("rewExpect") + facet_col("platform") + theme_ggeffects()
 ```
-``` {r} 
-summary_corrACC <- cleanACCdata %>% 
-  group_by(participant, blockNum) %>% 
-  summarise(ACC = mean(acc, na.rm = TRUE), .groups="keep")
-ggplot(data = summary_corrACC, aes(x=blockNum, y=ACC)) + geom_line(stat = "summary_bin", fun = median) +
-  ylim(.8,1)
-```
 
 ```{r model acc effects}
-acc_m1 <- mixed(formula = ACC ~ rewExpect*rewCond*platform + (1|participant), 
-                data = summaryACCstats, check_contrasts = TRUE, all_fit = TRUE)
+acc_m1 <- mixed(formula = acc ~ alt*prevRew*rewCond*rewExpect + (1|participant), 
+                data = cleanACCdata, check_contrasts = TRUE, all_fit = TRUE)
+acc_m1_asin <- mixed(formula = 1-acc ~ alt*prevRew*rewCond*rewExpect + (1|participant), 
+                data = cleanACCdata, check_contrasts = TRUE, all_fit = TRUE)
 summary(acc_m1)
-afex_plot(acc_m1, x = "rewCond")
+afex_plot(acc_m1, x = "prevRew", trace = "alt", panel = "rewExpect", data_plot = F)
 ```
+
 # VSR by reward expectancy
+
 ```{r GLMM - VSR by current and previous reward and rewExpect}
 # Set contrasts
 cleanChoicedata_restricted <- cleanChoicedata %>% 
@@ -519,15 +566,17 @@ contrasts(cleanChoicedata_restricted$rewExpect) <- contr.sum(2)
 contrasts(cleanChoicedata_restricted$prevRew) <- contr.sum(2)
 contrasts(cleanChoicedata_restricted$rewCond) <- contr.sum(2)
 ```
+
 ### Summarise data
+
 ```{r Summary VSR by Prev and Curr Reward}
 summary_VSR_Rew <- cleanChoicedata_restricted %>% 
-  group_by(participant, platform, prevRew, rewExpect, rewCond, alt) %>% 
+  group_by(participant, prevRew, rewExpect, rewCond, alt) %>% 
   filter(!is.na(alt)) %>% 
   summarise(n = n(), .groups = "drop_last") %>%
   ungroup() %>% 
-  complete(nesting(participant, platform, rewExpect), prevRew, rewCond, alt, fill = list(n = 0)) %>% 
-  group_by(participant, platform, rewExpect, prevRew, rewCond) %>%
+  complete(nesting(participant, rewExpect), prevRew, rewCond, alt, fill = list(n = 0)) %>% 
+  group_by(participant, rewExpect, prevRew, rewCond) %>%
   summarise(VSR = n[alt=="switch"]/sum(n), count=sum(n), .groups = "keep")
 
 summary_VSR_Rew %>% ungroup() %>% 
@@ -536,6 +585,7 @@ summary_VSR_Rew %>% ungroup() %>%
   geom_boxplot(fill = "transparent") +
   theme_ggeffects()
 ```
+
 ```{r}
 switch_m1 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
 switch_m2 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew+rewCond+rewExpect | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
@@ -543,12 +593,14 @@ switch_m3 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew+rewC
 switch_m4 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew*rewCond*rewExpect | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
 switch_m5 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew*rewCond*rewExpect || participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
 switch_m6 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + (prevRew+rewCond+rewExpect)^2 | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
-summary(switch_m1)
+anova(switch_m1)
 ```
+
 ```{r}
-afex_plot(switch_m1, x = "prevRew", trace = "rewCond", data_plot = F)
-afex_plot(switch_m1, x = "prevRew", trace = "rewCond", panel = "rewExpect", data_plot = F)
+plot_model(switch_m1$full_model, type = "emm", terms = c("prevRew", "rewCond", "rewExpect"))
+plot_model(switch_m1$full_model,x = "prevRew", trace = "rewCond", panel = "rewExpect", data_plot = F)
 ```
+
 ```{r GLMM - VSR by current and previous reward and rewExpect}
 # Set contrasts
 cleanChoicedata_noErr <- cleanChoicedata %>% 
@@ -559,7 +611,9 @@ contrasts(cleanChoicedata_noErr$rewExpect) <- contr.sum(2)
 contrasts(cleanChoicedata_noErr$prevRew) <- contr.sum(5)
 contrasts(cleanChoicedata_noErr$rewCond) <- contr.sum(2)
 ```
+
 ### Summarise data
+
 ```{r Summary VSR by Prev and Curr Reward}
 summary_VSR_Rew <- cleanChoicedata %>% 
   group_by(participant, platform, prevRew, rewExpect, rewCond, alt) %>% 
@@ -576,6 +630,7 @@ summary_VSR_Rew %>% ungroup() %>%
   geom_boxplot(fill = "transparent") +
   theme_ggeffects()
 ```
+
 ```{r}
 switch_m1_full <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 | participant), data = cleanChoicedata_noErr, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
 switch_m2 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew+rewCond+rewExpect | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
@@ -585,9 +640,8 @@ switch_m5 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + prevRew*rewC
 switch_m6 <- mixed(formula = alt ~ prevRew*rewCond*rewExpect + (1 + (prevRew+rewCond+rewExpect)^2 | participant), data = cleanChoicedata_restricted, family = binomial(), check_contrasts = TRUE, method = "LRT", control=glmerControl(optCtrl = list(maxfun=1e6)))
 summary(switch_m1_full)
 ```
+
 ```{r}
 afex_plot(switch_m1_full, x = "prevRew", trace = "rewCond", data_plot = F)
 afex_plot(switch_m1, x = "prevRew", trace = "rewCond", panel = "rewExpect", data_plot = F)
 ```
-
-
