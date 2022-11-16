@@ -155,8 +155,7 @@ fulldata <- fulldata %>%
                              trialNum>0 & E1==0 & lag(rewCond)=="Hi" & lag(points_trial)==0  ~ "hiSlow"))
 fulldata <- relocate(fulldata, prevRew, .before = rewCond)
 fulldata$prevRew <- as.factor(fulldata$prevRew)
-# Make high first
-fulldata$prevRew <- relevel(fulldata$prevRew, "hi")
+fulldata$prevRew <- factor(fulldata$prevRew, levels = c("hi", "lo", "hiSlow", "hi-", "lo+", "error")) 
 
 # Recode as factors
 fulldata$alt <- as.factor(fulldata$alt)
