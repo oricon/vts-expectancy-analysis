@@ -1,0 +1,26 @@
+### Julia modles
+using StatsKit, RCall, JellyMe4, DataFrames, RData, CSV, DisplayAs
+
+rtdata = load("/Users/joseph.orr/Documents/repositories/vts-expectancy-analysis/Rdata/cleanRTdata.Rds");
+
+rt_m4 = fit(MixedModel, @formula(RT ~ 1 + alt * prevRew * rewCond * rewExpectancy + (1 + alt * prevRew * rewCond * rewExpectancy | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+rt_m2 = fit(MixedModel, @formula(RT ~ 1 + alt * prevRew * rewCond * rewExpectancy + (1 + alt + prevRew + rewCond + rewExpectancy | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+rt_m3 = fit(MixedModel, @formula(RT ~ 1 + alt * prevRew * rewCond * rewExpectancy + zerocorr(1 + alt + prevRew + rewCond + rewExpectancy | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+rt_m4 = fit(MixedModel, @formula(RT ~ 1 + alt * prevRew * rewCond * rewExpectancy + (1 + alt + rewExpectancy | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+rt_m5 = fit(MixedModel, @formula(RT ~ 1 + alt * prevRew * rewCond * rewExpectancy + (1 | participant)), rtdata, contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high")))
+
+# rt_m4 best fit
+
+rt_m4_j = (rt_m4, rtdata);
+@rput rt_m4_j;
+R"library(readr)"
+R"write_rds(rt_m4_j, 'Rdata/rt_m4.Rds')";
+
+# Save model table to latex
+open("rt_model.md", "w") do io
+    show(io, MIME("text/markdown"), rt_m4)
+end

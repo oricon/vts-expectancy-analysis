@@ -1,0 +1,37 @@
+using StatsKit, RCall, JellyMe4, DataFrames, RData, CSV, DisplayAs
+
+probdata = load("/Users/joseph.orr/Documents/repositories/VTS_Reward_Training/Rdata/cleanChoiceData_prob.Rds");
+
+prob_m1 = fit(MixedModel, @formula(alt ~ 1 + prevRew * rewCond * platform + (1 + prevRew * rewCond * platform | participant)), probdata, Bernoulli(), contrasts = Dict(:rewCond => EffectsCoding(base = "Hi"), :prevRew => EffectsCoding(base = "hi"), :platform => EffectsCoding(base = "inlab")))
+
+prob_m2 = fit(MixedModel, @formula(alt ~ 1 + prevRew * rewCond * platform + zerocorr(1 + prevRew * rewCond * platform | participant)), probdata, Bernoulli(), contrasts = Dict(:rewCond => EffectsCoding(base = "Hi"), :prevRew => EffectsCoding(base = "hi"), :platform => EffectsCoding(base = "inlab")))
+
+prob_m3 = fit(MixedModel, @formula(alt ~ 1 + rewCond * prevRew * platform + (1 + prevRew + rewCond + platform | participant)), probdata, Bernoulli(), contrasts = Dict(:rewCond => EffectsCoding(base = "Hi"), :prevRew => EffectsCoding(base = "hi"), :platform => EffectsCoding(base = "inlab")))
+
+prob_m4 = fit(MixedModel, @formula(alt ~ 1 + rewCond * prevRew * platform + zerocorr(1 + prevRew + rewCond + platform | participant)), probdata, Bernoulli(), contrasts = Dict(:rewCond => EffectsCoding(base = "Hi"), :prevRew => EffectsCoding(base = "hi"), :platform => EffectsCoding(base = "inlab")))
+
+prob_m5 = fit(MixedModel, @formula(alt ~ 1 + rewCond * prevRew * platform + (1 | participant)), probdata, Bernoulli(), contrasts = Dict(:rewCond => EffectsCoding(base = "Hi"), :prevRew => EffectsCoding(base = "hi"), :platform => EffectsCoding(base = "inlab")))
+
+# Models 2 and 5 have non-singular fits
+MixedModels.likelihoodratiotest(prob_m1, prob_m5)
+Model Formulae
+1: alt ~ 1 + rewCond + prevRew + platform + rewCond & prevRew + rewCond & platform + prevRew & platform + rewCond & prevRew & platform + (1 | participant)
+2: alt ~ 1 + rewCond + prevRew + platform + rewCond & prevRew + rewCond & platform + prevRew & platform + rewCond & prevRew & platform + (1 + rewCond + prevRew + platform + rewCond & prevRew | participant)
+────────────────────────────────────────────────────
+     model-dof    deviance        χ²  χ²-dof  P(>χ²)
+────────────────────────────────────────────────────
+[1]         21  32280.9550
+[2]         86  32058.6711  222.2839      65  <1e-18
+────────────────────────────────────────────────────
+
+# Best fit model is model 2
+prob_m5_choice = (prob_m5, probdata);
+@rput prob_m5_choice;
+R"write_rds(prob_m5_choice, 'Rdata/prob_m5_choice.Rds')";
+
+
+## Print fixed effects parameters
+open("prob_m5.md", "w") do io
+    show(io, MIME("text/markdown"), prob_m5)
+end
+

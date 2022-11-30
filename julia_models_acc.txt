@@ -1,0 +1,16 @@
+### Julia modles
+using StatsKit, RCall, JellyMe4, DataFrames, RData, CSV, DisplayAs
+
+accdata = load("/Users/joseph.orr/Documents/repositories/vts-expectancy-analysis/Rdata/acc_data.Rds");
+
+acc_m1 = fit(MixedModel, @formula(acc ~ 1 + alt * rewCond * rewExpectancy + (1 + alt * rewCond * rewExpectancy | participant)), accdata, Bernoulli(), contrasts = Dict(:alt => EffectsCoding(base = "repeat"), :rewCond => EffectsCoding(base = "Hi"), :rewExpectancy => EffectsCoding(base = "high"))) 
+
+acc_m1_j = (acc_m1, accdata);
+@rput acc_m1_j;
+R"library(readr)"
+R"write_rds(acc_m1_j, 'Rdata/acc_m1.Rds')";
+
+# Save model table to latex
+open("acc_model.md", "w") do io
+    show(io, MIME("text/markdown"), acc_m1)
+end
