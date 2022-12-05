@@ -137,7 +137,7 @@ init_subs <- fulldata %>% group_by(participant) %>% tally()
 
 ```{r Read survey data, eval=FALSE, include=FALSE}
 Online_TOKEN = "8092328E3AA4D7901F5341ADA9DD1177"
-Inlab_TOKEN = ""
+Inlab_TOKEN = "A171103888A7D82C027463ACE9957867"
 URL = "https://redcap.tamhsc.edu/api/"
 rcon <- redcapConnection(url=URL, token=Online_TOKEN)
 df_redcap_online <- exportRecords(rcon)
@@ -145,16 +145,25 @@ rcon <- redcapConnection(url=URL, token=Inlab_TOKEN)
 df_redcap_inlab <- exportRecords(rcon)
 
 
-demos <- df_redcap_online %>% 
+demos_online <- df_redcap_online %>% 
   select('sona_id','genderid','age','colorblind','education', 'consent_timestamp')
-demos <- demos %>% 
+demos_online$sona_id <- as.numeric(demos_online$sona_id)
+demos_online <- demos_online %>% 
   group_by(sona_id) %>% 
   arrange(consent_timestamp) %>% 
   filter(consent_timestamp == first(consent_timestamp))
 
-demos <- rbind(survey_data_inlabDet, survey_data_inlabProb, survey_data_online)
-demos <- survey_data %>% distinct(ID, .keep_all = TRUE)
-only_surveys <- demos$ID[!(demos$ID %in% fulldata$participant)]
+demos_inlab <- df_redcap_inlab %>% 
+  select('sona_id','genderid','age','colorblind','education', 'consent_timestamp')
+demos_inlab$sona_id <- as.numeric(demos_inlab$sona_id)
+demos_inlab <- demos_inlab %>% 
+  group_by(sona_id) %>% 
+  arrange(consent_timestamp) %>% 
+  filter(consent_timestamp == first(consent_timestamp))
+
+demos <- rbind(demos_inlab, demos_online)
+demos <- demos %>% distinct(sona_id, .keep_all = TRUE)
+only_surveys <- demos$sona_id[!(demos$sona_id %in% fulldata$participant)]
 participant_demos <- demos %>% filter(sona_id %in% fulldata$participant)
 ```
 
@@ -227,9 +236,7 @@ summary(participant_demos)
 ```
 
 # Data cleaning
-
 ## RT data cleaning
-
 ```{r Summary stats for RT data, echo=TRUE}
 summary_RT <- fulldata %>% 
   filter(!condition == "training") %>% 
@@ -245,12 +252,11 @@ summary(summary_RT)
 ```{r Plot RT Histogram, echo=TRUE}
 summary_RT %>% 
   ggplot(aes(x=meanRT)) + 
-  #facet_grid(rows = vars(rewExpectancy)) +
-  geom_histogram(bins=10) +
+  geom_histogram(bins=15) +
   geom_vline(data = filter(summary_RT, rewExpectancy=="high"),
-             aes(xintercept=median(meanRT)), color="blue", linetype="dashed", size=1) +
+             aes(xintercept=median(meanRT)), color="blue", linetype="dashed", linewidth=1) +
   geom_vline(data = filter(summary_RT, rewExpectancy=="low"),
-             aes(xintercept=median(meanRT)), color="red", linetype="dashed", size=1) +
+             aes(xintercept=median(meanRT)), color="red", linetype="dashed", linewidth=1) +
   scale_x_continuous(name="Mean RT", breaks = seq(400,1800,200)) +
   scale_y_continuous(name = "Count", breaks = seq(0,100,10))
 ```
@@ -281,10 +287,10 @@ summary(summary_ACC)
 ```{r Plot Accuracy Histogram}
 summary_ACC %>% 
   ggplot(aes(x=ACC)) + 
-  geom_histogram(bins=10) + 
+  geom_histogram(bins=20) + 
   geom_vline(aes(xintercept=median(ACC)), color="blue", linetype="dashed", size=1) +
   scale_x_continuous(name="Accuracy", breaks = seq(0, 1, .05)) +
-  scale_y_continuous(name = "Count", breaks = seq(0,60,5))
+  scale_y_continuous(name = "Count", breaks = seq(0,70,10))
 ```
 
 All levels of platform and platform have similar distributions for ACC
@@ -299,7 +305,7 @@ ACC_exclude <- subset(ACC_outliers,is.extreme=="TRUE") %>% select(participant)
 excludeSubjs <- rbind(excludeSubjs,ACC_exclude)
 excludeSubjs <- unique(excludeSubjs)
 ```
-1 outliers
+3 outliers
 
 ## Training QC
 ### Compare points_total during training to identify outliers
@@ -311,7 +317,7 @@ summary_training <- fulldata %>%
 summary(summary_training)
 
 summary_training %>% ggplot(aes(x=points, fill=rewExpectancy)) + 
-  geom_histogram(bins=10) + 
+  geom_histogram(bins=15) + 
   geom_vline(data = filter(summary_training, rewExpectancy=="high"),
              aes(xintercept=median(points)), color="red", linetype="dashed", size=1) +
   geom_vline(data = filter(summary_training, rewExpectancy=="low"),
@@ -338,7 +344,7 @@ summary(summary_task_choice)
 ```{r plot task choice histogram}
 summary_task_choice %>% 
   ggplot(aes(x=lettProp)) + 
-  geom_histogram(bins=10) + 
+  geom_histogram(bins=25) + 
   scale_x_continuous(name="Letter Task Choice Proportion", breaks = seq(0, 1, .1)) +
   scale_y_continuous(name = "Count", breaks = seq(0,100,10))
 ```
@@ -350,7 +356,7 @@ task_exclude <- subset(task_outliers,is.extreme=="TRUE") %>% select(participant)
 excludeSubjs <- rbind(excludeSubjs,task_exclude)
 excludeSubjs <- unique(excludeSubjs)
 ```
-6 outliers
+9 outliers
 
 ## Switch data
 ```{r Summarise switch rate, warning=FALSE}
@@ -365,7 +371,7 @@ summary(summary_VSR)
 ```{r Plot VSR distribution}
 summary_VSR %>% 
   ggplot(aes(x=VSR)) + 
-  geom_histogram(bins=10) +
+  geom_histogram(bins=15) +
   geom_vline(aes(xintercept=median(VSR)), color="blue", linetype="dashed", size=1) +
   scale_x_continuous(name="Voluntary Switch Rate", breaks = seq(0.0, 1.0, .1)) +
   scale_y_continuous(name = "Count", breaks = seq(0,50,5))
@@ -428,7 +434,7 @@ summary_corrRT <- cleandata %>%
 ggplot(data = summary_corrRT, aes(x=factor(blockNum), y=meanRT, fill=factor(blockNum))) +
   geom_violin(aes(fill=factor(blockNum)), show.legend = FALSE, alpha = .8) +
   geom_boxplot(color="Dark Gray", alpha=.4, width=.3, position = position_dodge(.8), show.legend = FALSE) +
-  theme_classic2() + scale_y_continuous(breaks = seq(200,1500,250)) +
+  theme_minimal() + scale_y_continuous(breaks = seq(200,1500,250)) +
   xlab(label = "Block Number") + ylab(label = "Mean RT") +
   scale_fill_manual(values = c("#FDE725FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF"))
 ggsave(filename = "RT_block.pdf", device = cairo_pdf, path = here("Rdata"))
@@ -484,8 +490,8 @@ summary_ACCblock <- cleandata %>%
 
 ggplot(data = summary_ACCblock, aes(x=factor(blockNum), y=meanACC, fill=factor(blockNum))) +
   geom_violin(aes(fill=factor(blockNum)), show.legend = FALSE, alpha = .8) +
-  geom_boxplot(color="Dark Gray", alpha=.4, width=.3, position = position_dodge(.8), show.legend = FALSE) +
-  theme_classic2() + 
+  geom_boxplot(color="Dark Gray", alpha=.4, width=.2, position = position_dodge(.8), show.legend = FALSE) +
+  theme_minimal() + 
   xlab(label = "Block Number") + ylab(label = "Mean ACC") +
   scale_fill_manual(values = c("#FDE725FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF", "#440154FF"))
 ggsave(filename = "ACC_block.pdf", device = cairo_pdf, path = here("Rdata"))
@@ -541,6 +547,7 @@ write_rds(cleanChoicedata_restricted, here("Rdata","choice_restrict_data.Rds"))
 ```{r Summary VSR by Prev and Curr Reward}
 summary_VSR_Rew <- cleanChoicedata_restricted %>% 
   group_by(participant, genderid, prevRew, rewExpectancy, rewCond, alt) %>% 
+  filter(genderid == "Male" | genderid == "Female") %>% 
   filter(!is.na(alt)) %>% 
   summarise(n = n(), .groups = "drop_last") %>%
   group_by(participant, genderid, rewExpectancy, prevRew, rewCond) %>%
@@ -584,9 +591,11 @@ ggsave("choice_prevRew2_rewExpect_plot.pdf", device = cairo_pdf, path = here("Rd
 # Set contrasts
 cleanChoicedata_noErr <- cleandata.w.demos %>% 
   filter(!prevRew == "error") %>% 
+  filter(genderid == "Male" | genderid == "Female") %>% 
   droplevels()
 cleanChoicedata_noErr$participant <- as.factor(cleanChoicedata_noErr$participant)
 contrasts(cleanChoicedata_noErr$alt) <- contr.sum(2)
+contrasts(cleanChoicedata_noErr$genderid) <- contr.sum(2)
 contrasts(cleanChoicedata_noErr$rewExpectancy) <- contr.sum(2)
 contrasts(cleanChoicedata_noErr$prevRew) <- contr.sum(5)
 contrasts(cleanChoicedata_noErr$rewCond) <- contr.sum(2)
@@ -623,8 +632,8 @@ joint_tests(choice_m5)
 emm_options(lmer.df = "asymptotic")
 theme_set(theme_sjplot(base_size = 16, base_family = "Arial") +
             theme(legend.position = "right"))
-plot_model(choice_m5, type = "emm", terms = c("prevRew", "rewCond", "rewExpectancy"), 
-           legend.title = "Reward Prospect", colors = "Dark2", 
+plot_model(choice_m6, type = "emm", terms = c("prevRew", "genderid", "rewExpectancy"), 
+           legend.title = "Reward Expectancy", colors = "Dark2", 
            axis.title = c("Previous Trial Reward Outcome", "Switch Probability"), 
            title = "", line.size=1)
 ggsave("choice_prevRew5_Expect_plot.pdf", device = cairo_pdf, path = here("Rdata"))
@@ -633,9 +642,10 @@ ggsave("choice_prevRew5_Expect_plot.pdf", device = cairo_pdf, path = here("Rdata
 ```{r}
 emm1 <- emmeans(choice_m5, ~prevRew * rewCond * rewExpectancy)
 joint_tests(choice_m5, by = "rewExpectancy")
-#pairs(emm1, by=NULL)
+pairs(emm1, by=NULL)
 pairs(emm1, simple = "prevRew")
 #pairs(emm1, simple = "rewCond")
-
+pw_comp <- pwpm(emm1, by = "rewExpectancy")
+as.data.frame(pw_comp)
 ```
 
